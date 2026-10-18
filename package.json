@@ -1,0 +1,39 @@
+{
+  "name": "promo-studio",
+  "productName": "Promo Studio",
+  "version": "0.1.0",
+  "description": "Record your screen, camera and game audio, edit, and export promo videos.",
+  "main": "main.js",
+  "author": "PooterLewis",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "electron": "43.7.7",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.pooterlewis.promostudio",
+    "productName": "Promo Studio",
+    "files": ["main.js", "preload.js", "app/**/*", "package.json"],
+    "directories": { "buildResources": "build", "output": "dist" },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "Promo Studio"
+    },
+    "publish": [{ "provider": "github", "owner": "PooterLewis", "repo": "promo-studio", "releaseType": "release" }]
+  }
+}
