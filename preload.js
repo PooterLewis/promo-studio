@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('studio', {
   reveal: file => ipcRenderer.invoke('file:reveal', file),
   openFolder: () => ipcRenderer.invoke('folder:open'),
   recState: on => ipcRenderer.send('rec:state', !!on),
+  setTheme: t => ipcRenderer.send('theme:set', t),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   onHotkey: fn => ipcRenderer.on('hotkey', (e, action) => fn(action)),
   onUpdate: fn => ipcRenderer.on('update', (e, info) => fn(info)),

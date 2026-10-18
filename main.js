@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, desktopCapturer, session, ipcMain, globalShortcut, shell } = require('electron');
+const { app, BrowserWindow, desktopCapturer, session, ipcMain, globalShortcut, shell, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -104,6 +104,8 @@ ipcMain.handle('file:save', async (e, name, buf) => { const file = uniquePath(na
 ipcMain.handle('file:reveal', (e, file) => { if (file && fs.existsSync(file)) shell.showItemInFolder(file); else shell.openPath(outDir()); });
 ipcMain.handle('folder:open', () => shell.openPath(outDir()));
 // A red taskbar button shows recording is running while you're in the game.
+// Keeps the Windows title bar in step with the app's theme.
+ipcMain.on('theme:set', (e, t) => { nativeTheme.themeSource = ['dark', 'light', 'system'].includes(t) ? t : 'system'; });
 ipcMain.on('rec:state', (e, on) => { if (win) win.setProgressBar(on ? 1 : -1, { mode: on ? 'error' : 'none' }); });
 
 if (!app.requestSingleInstanceLock()) app.quit();

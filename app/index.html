@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Promo Studio</title>
+<script>
+// Apply the saved theme before anything paints. Dark is the default.
+(function () { var t = 'dark'; try { t = localStorage.getItem('theme') || 'dark'; } catch (e) {} if (t !== 'system') document.documentElement.dataset.theme = t; })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -53,6 +57,8 @@ button,select,input,textarea{font:inherit;color:inherit}
 .tab[aria-selected="true"]{background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.15)}
 .pill{font:500 11px var(--f-mono);background:var(--accent-soft);color:var(--accent);padding:0 6px;border-radius:9px}
 .top-right{margin-left:auto;display:flex;gap:12px;align-items:center}
+.theme-sel{width:auto;padding:4px 8px;font-size:12.5px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
 /* buttons & inputs */
 .btn{border:1px solid var(--line);background:var(--surface-2);padding:7px 12px;border-radius:7px;cursor:pointer;font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:6px}
@@ -216,7 +222,7 @@ main{min-height:0;overflow:hidden}
     <button class="tab" role="tab" data-view="rec" aria-selected="true" id="tabRec">Record</button>
     <button class="tab" role="tab" data-view="edit" aria-selected="false" id="tabEdit">Edit <span id="segCount" class="pill">0</span></button>
   </nav>
-  <div class="top-right"><div id="updateBar" class="update-bar" hidden><span id="updateText"></span><button class="btn small primary" id="updateBtn" hidden>Restart to update</button></div><button class="btn small" id="openFolder" hidden>Open videos folder</button><span id="saveState" class="muted small">Projects save in this browser</span><span id="appVer" class="small muted"></span></div>
+  <div class="top-right"><div id="updateBar" class="update-bar" hidden><span id="updateText"></span><button class="btn small primary" id="updateBtn" hidden>Restart to update</button></div><label class="sr-only" for="themeSel">Theme</label><select id="themeSel" class="theme-sel" title="Theme"><option value="dark">Dark mode</option><option value="light">Light mode</option><option value="system">Match Windows</option></select><button class="btn small" id="openFolder" hidden>Open videos folder</button><span id="saveState" class="muted small">Projects save in this browser</span><span id="appVer" class="small muted"></span></div>
 </header>
 
 <main>
@@ -1490,7 +1496,16 @@ async function setupDesktop() {
   $('#updateBtn').onclick = () => { if (R.state === 'rec' || R.state === 'paused' || P.exporting) return toast('Finish recording or exporting first.'); DESK.installUpdate(); };
 }
 
+function setTheme(t) {
+  if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('theme', t); } catch (e) {}
+  $('#themeSel').value = t;
+  DESK?.setTheme?.(t);
+}
+$('#themeSel').addEventListener('change', e => setTheme(e.target.value));
+
 (async function boot() {
+  { let t = 'dark'; try { t = localStorage.getItem('theme') || 'dark'; } catch (e) {} setTheme(t); }
   await setupDesktop().catch(e => console.error(e));
   await loadProject();
   $('#zoom').value = TL.pps;
