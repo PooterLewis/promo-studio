@@ -1,7 +1,13 @@
 'use strict';
-const { app, BrowserWindow, desktopCapturer, session, ipcMain, globalShortcut, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, desktopCapturer, session, ipcMain, globalShortcut, shell, nativeTheme, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { Readable } = require('stream');
+const native = require('./native-capture');
+
+// media:// serves recorded files to the editor with range requests (for seeking)
+// and CORS headers, so frames can be drawn and exported like any other video.
+protocol.registerSchemesAsPrivileged([{ scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }]);
 
 let win = null;
 let pick = { id: null, audio: true };
@@ -100,22 +106,48 @@ ipcMain.handle('rec:close', (e, id) => new Promise(res => {
   const w = writers.get(id); if (!w) return res(null);
   writers.delete(id); w.stream.end(() => res(w.file));
 }));
+ipcMain.handle('native:info', () => native.detect());
+ipcMain.handle('native:start', async (e, { sourceId, fps }) => {
+  const sources = await desktopCapturer.getSources({ types: ['screen'] });
+  const src = sources.find(s => s.id === sourceId);
+  if (!src) throw new Error('Only whole screens use the fast recorder');
+  const tempFile = uniquePath(`recording-${Date.now()}.part.mp4`);
+  return native.start({ displayId: src.display_id, fps, tempFile });
+});
+ipcMain.handle('native:stop', (e, id, name) => native.stop(id, uniquePath(name)));
+
+function serveMedia(req) {
+  const file = path.resolve(new URL(req.url).searchParams.get('p') || '');
+  if (!file.startsWith(path.resolve(outDir()) + path.sep) || !fs.existsSync(file)) return new Response('Not found', { status: 404 });
+  const size = fs.statSync(file).size;
+  const type = /\.mp4$/i.test(file) ? 'video/mp4' : 'video/webm';
+  const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*' };
+  const m = /bytes=(\d*)-(\d*)/.exec(req.headers.get('range') || '');
+  if (!m) return new Response(Readable.toWeb(fs.createReadStream(file)), { status: 200, headers: { ...base, 'Content-Length': String(size) } });
+  let start = m[1] ? +m[1] : size - +m[2], end = m[1] && m[2] ? +m[2] : size - 1;
+  start = Math.max(0, start); end = Math.min(size - 1, end);
+  if (start > end) return new Response(null, { status: 416, headers: { ...base, 'Content-Range': `bytes */${size}` } });
+  return new Response(Readable.toWeb(fs.createReadStream(file, { start, end })), {
+    status: 206, headers: { ...base, 'Content-Length': String(end - start + 1), 'Content-Range': `bytes ${start}-${end}/${size}` },
+  });
+}
 ipcMain.handle('file:save', async (e, name, buf) => { const file = uniquePath(name); await fs.promises.writeFile(file, Buffer.from(buf)); return file; });
 ipcMain.handle('file:reveal', (e, file) => { if (file && fs.existsSync(file)) shell.showItemInFolder(file); else shell.openPath(outDir()); });
 ipcMain.handle('folder:open', () => shell.openPath(outDir()));
-// A red taskbar button shows recording is running while you're in the game.
 // Keeps the Windows title bar in step with the app's theme.
 ipcMain.on('theme:set', (e, t) => { nativeTheme.themeSource = ['dark', 'light', 'system'].includes(t) ? t : 'system'; });
+// A red taskbar button shows recording is running while you're in the game.
 ipcMain.on('rec:state', (e, on) => { if (win) win.setProgressBar(on ? 1 : -1, { mode: on ? 'error' : 'none' }); });
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   if (process.platform === 'win32') app.setAppUserModelId('com.pooterlewis.promostudio');
-  app.whenReady().then(() => { setupCapture(); createWindow(); setupHotkeys(); setupUpdates(); });
+  app.whenReady().then(() => { protocol.handle('media', serveMedia); setupCapture(); native.detect(); createWindow(); setupHotkeys(); setupUpdates(); });
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     for (const w of writers.values()) w.stream.end();
+    native.stopAll();
   });
   app.on('window-all-closed', () => app.quit());
 }

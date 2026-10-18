@@ -1,7 +1,7 @@
 {
   "name": "promo-studio",
   "productName": "Promo Studio",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Record your screen, camera and game audio, edit, and export promo videos.",
   "main": "main.js",
   "author": "PooterLewis",
@@ -25,8 +25,15 @@
     "files": [
       "main.js",
       "preload.js",
+      "native-capture.js",
       "app/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/ffmpeg.exe",
+        "to": "ffmpeg/ffmpeg.exe"
+      }
     ],
     "directories": {
       "buildResources": "build",

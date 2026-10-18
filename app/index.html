@@ -258,6 +258,7 @@ main{min-height:0;overflow:hidden}
       <div class="row"><label for="fpsSel">Frame rate</label>
         <select id="fpsSel" data-bind="rec.fps"><option value="30">30 fps</option><option value="60">60 fps</option></select></div>
       <div class="meter-row"><span>Game + Discord</span><div class="meter"><i id="sysMeter"></i></div></div>
+      <p id="encHint" class="hint" hidden></p>
       <p id="sysHint" class="hint">To capture game and Discord sound, share your entire screen and tick “Share system audio”.</p>
     </div>
     <div class="group">
@@ -493,7 +494,7 @@ function saveProject() {
   clearTimeout(saveT);
   saveT = setTimeout(async () => {
     const data = {
-      clips: S.clips.map(c => ({ id: c.id, name: c.name, files: c.files || null, duration: c.duration, hasCamVideo: c.hasCamVideo, hasVoice: c.hasVoice, thumb: c.thumb })),
+      clips: S.clips.map(c => ({ id: c.id, name: c.name, files: c.files || null, duration: c.duration, hasCamVideo: c.hasCamVideo, hasVoice: c.hasVoice, hasGame: !!c.gameUrl, native: !!c.native, off: c.off || 0, thumb: c.thumb })),
       segments: S.segments, texts: S.texts, cam: S.cam, out: S.out, rec: S.rec,
       audio: { game: S.audio.game, voice: S.audio.voice, musicVol: S.audio.musicVol, music: S.audio.music ? { name: S.audio.music.name, duration: S.audio.music.duration } : null },
     };
@@ -507,9 +508,12 @@ async function loadProject() {
   Object.assign(S.cam, data.cam || {}); Object.assign(S.out, data.out || {}); Object.assign(S.rec, data.rec || {});
   if (data.audio) { S.audio.game = data.audio.game ?? 1; S.audio.voice = data.audio.voice ?? 1; S.audio.musicVol = data.audio.musicVol ?? 0.3; }
   for (const c of data.clips || []) {
-    const main = await IDB.get('blobs', c.id + ':main'); if (!main) continue;
+    const main = c.native ? null : await IDB.get('blobs', c.id + ':main');
+    if (!main && !(c.native && c.files?.[0])) continue;
     const cam = (c.hasVoice || c.hasCamVideo) ? await IDB.get('blobs', c.id + ':cam') : null;
-    S.clips.push({ ...c, url: URL.createObjectURL(main), camUrl: cam ? URL.createObjectURL(cam) : null, hasVoice: !!cam && c.hasVoice, hasCamVideo: !!cam && c.hasCamVideo, blob: main, camBlob: cam });
+    const game = c.hasGame ? await IDB.get('blobs', c.id + ':game') : null;
+    S.clips.push({ ...c, url: main ? URL.createObjectURL(main) : mediaUrl(c.files[0]), camUrl: cam ? URL.createObjectURL(cam) : null, gameUrl: game ? URL.createObjectURL(game) : null,
+      hasVoice: !!cam && c.hasVoice, hasCamVideo: !!cam && c.hasCamVideo, blob: main, camBlob: cam, gameBlob: game });
   }
   S.segments = (data.segments || []).filter(s => s.kind === 'card' || clipById(s.clipId));
   S.texts = data.texts || [];
@@ -548,14 +552,21 @@ function ensureAudio() {
 function applyVolumes() { if (!AE.ctx) return; AE.game.gain.value = S.audio.game; AE.voice.gain.value = S.audio.voice; }
 function routeEl(el, bus) { if (!AE.ctx || el._routed) return; try { AE.ctx.createMediaElementSource(el).connect(bus); el._routed = true; } catch (e) { console.warn(e); } }
 
+const mediaUrl = file => 'media://local/file?p=' + encodeURIComponent(file);
 function mkVideo(url) {
-  const v = document.createElement('video'); v.preload = 'auto'; v.playsInline = true; v.src = url;
+  // crossOrigin keeps canvases drawable when the video comes from media:// files.
+  const v = document.createElement('video'); v.preload = 'auto'; v.playsInline = true; v.crossOrigin = 'anonymous'; v.src = url;
   $('#mediaPool').appendChild(v); return v;
 }
 function clipEls(c) {
-  if (!c.el) { c.el = mkVideo(c.url); if (c.camUrl) c.camEl = mkVideo(c.camUrl); }
-  ensureAudio(); routeEl(c.el, AE.game); if (c.camEl) routeEl(c.camEl, AE.voice);
+  if (!c.el) { c.el = mkVideo(c.url); if (c.camUrl) c.camEl = mkVideo(c.camUrl); if (c.gameUrl) c.gameEl = mkVideo(c.gameUrl); }
+  ensureAudio(); routeEl(c.el, AE.game); if (c.camEl) routeEl(c.camEl, AE.voice); if (c.gameEl) routeEl(c.gameEl, AE.game);
 }
+// The camera/mic and game-sound files play alongside the screen video. off is how far
+// their timeline is ahead of the screen video's (set when the screen is recorded separately).
+const subs = c => [c.camEl, c.gameEl].filter(Boolean);
+const subTime = (c, t) => Math.max(0, t + (c.off || 0));
+function pauseClip(c) { c.el?.pause(); c.camEl?.pause(); c.gameEl?.pause(); }
 // MediaRecorder webm files report Infinity duration until scanned; this forces the real value.
 function loadMeta(v) {
   return new Promise(res => {
@@ -572,7 +583,7 @@ function loadMeta(v) {
 }
 function grabThumb(url, at) {
   return new Promise(res => {
-    const v = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.src = url; $('#mediaPool').appendChild(v);
+    const v = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.crossOrigin = 'anonymous'; v.src = url; $('#mediaPool').appendChild(v);
     let done = false; const fin = d => { if (done) return; done = true; v.remove(); res(d); };
     setTimeout(() => fin(''), 6000);
     v.addEventListener('loadeddata', () => { v.currentTime = at; }, { once: true });
@@ -699,13 +710,13 @@ const musicEl = new Audio(); musicEl.preload = 'auto';
 function activate(i, offset, play, tol = 0.04) {
   const L = layout(), e = L[i]; P.cur = e ? i : -1;
   const keep = e && e.s.kind === 'clip' ? e.s.clipId : null;
-  for (const c of S.clips) if (c.id !== keep) { c.el?.pause(); c.camEl?.pause(); }
+  for (const c of S.clips) if (c.id !== keep) pauseClip(c);
   if (!e || e.s.kind !== 'clip') return;
   const c = clipById(e.s.clipId); clipEls(c);
   const tt = e.s.in + offset;
   if (Math.abs(c.el.currentTime - tt) > tol) c.el.currentTime = tt;
-  if (c.camEl && Math.abs(c.camEl.currentTime - tt) > Math.max(tol, 0.1)) c.camEl.currentTime = tt;
-  if (play) { c.el.play().catch(() => {}); c.camEl?.play().catch(() => {}); } else { c.el.pause(); c.camEl?.pause(); }
+  for (const s of subs(c)) if (Math.abs(s.currentTime - subTime(c, tt)) > Math.max(tol, 0.1)) s.currentTime = subTime(c, tt);
+  if (play) { c.el.play().catch(() => {}); subs(c).forEach(s => s.play().catch(() => {})); } else pauseClip(c);
 }
 function seek(t) {
   P.t = clamp(t, 0, total()); const e = segAt(P.t);
@@ -722,7 +733,7 @@ function play() {
 }
 function pause() {
   P.playing = false;
-  for (const c of S.clips) { c.el?.pause(); c.camEl?.pause(); }
+  for (const c of S.clips) pauseClip(c);
   musicEl.pause();
   $('#playBtn').textContent = '▶'; $('#playBtn').setAttribute('aria-label', 'Play');
 }
@@ -732,7 +743,7 @@ function advance(dt) {
   if (e.s.kind === 'clip') {
     const c = clipById(e.s.clipId), ct = c.el.currentTime;
     P.t = e.start + Math.max(0, ct - e.s.in);
-    if (c.camEl && !c.camEl.seeking && !c.el.seeking && Math.abs(c.camEl.currentTime - ct) > 0.2) c.camEl.currentTime = ct;
+    for (const s of subs(c)) if (!s.seeking && !c.el.seeking && Math.abs(s.currentTime - subTime(c, ct)) > 0.2) s.currentTime = subTime(c, ct);
     if (c.el.paused && !c.el.seeking && !c.el.ended && ct < e.s.out - 0.05) c.el.play().catch(() => {});
     if (ct >= e.s.out - 0.015 || c.el.ended) nextSeg(e);
   } else {
@@ -930,9 +941,10 @@ async function openMic() {
 function pickMime(cands) { for (const m of cands) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m; return ''; }
 function recorderFor(stream, kind) {
   const hasV = stream.getVideoTracks().length > 0;
-  const mime = hasV ? pickMime(['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']) : pickMime(['audio/webm;codecs=opus', 'audio/webm']);
+  // H.264 first: Chromium hands it to the graphics card, where VP9 would load the CPU while you play.
+  const mime = hasV ? pickMime(['video/webm;codecs=h264,opus', 'video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm']) : pickMime(['audio/webm;codecs=opus', 'audio/webm']);
   const opts = { mimeType: mime || undefined };
-  if (hasV) opts.videoBitsPerSecond = kind === 'main' ? (+S.rec.fps === 60 ? 14e6 : 9e6) : 3e6;
+  if (hasV) opts.videoBitsPerSecond = kind === 'main' ? (+S.rec.fps === 60 ? 16e6 : 10e6) : 3e6;
   opts.audioBitsPerSecond = 160000;
   const r = new MediaRecorder(stream, opts); r.chunks = []; r.kind = kind;
   r.ondataavailable = ev => {
@@ -944,7 +956,10 @@ function recorderFor(stream, kind) {
   r.saved = () => r.disk ? r.diskQ.then(h => DESK.recClose(h.id)).catch(() => null) : Promise.resolve(null);
   return r;
 }
+let nativeInfoP = null;
+const nativeInfo = () => (nativeInfoP ||= DESK?.nativeInfo ? DESK.nativeInfo().catch(() => ({ available: false })) : Promise.resolve({ available: false }));
 async function startRec(opts = {}) {
+  if (R.state === 'split') R.state = 'idle';
   if (R.state !== 'idle') return;
   if (!R.screen && !R.cam && !R.mic) { notify('Nothing to record yet', 'Open Promo Studio and choose a screen first.'); return toast('Choose a screen, camera or microphone first.'); }
   if (!window.MediaRecorder) return toast('This browser cannot record. Use Chrome or Edge.');
@@ -953,20 +968,40 @@ async function startRec(opts = {}) {
     for (let n = 3; n > 0; n--) { cd.textContent = n; await new Promise(r => setTimeout(r, 1000)); if (R.state !== 'count') { cd.hidden = true; return; } }
     cd.hidden = true;
   }
+  R.state = 'starting'; $('#recBtn').disabled = true;
+  // Whole screens record through ffmpeg on the graphics card; Chromium then only records sound.
+  R.native = null;
+  if (DESK && R.screen && R.srcId?.startsWith('screen') && (await nativeInfo()).available) {
+    try { R.native = await DESK.nativeStart({ sourceId: R.srcId, fps: +S.rec.fps }); }
+    catch (e) { console.warn('Fast recorder could not start, using the built-in one', e); }
+  }
   const voiceTracks = [...(R.cam ? R.cam.getVideoTracks() : []), ...(R.mic ? R.mic.getAudioTracks() : [])];
-  let main, voice = null;
-  if (R.screen) { main = new MediaStream([...R.screen.getVideoTracks(), ...R.screen.getAudioTracks()]); if (voiceTracks.length) voice = new MediaStream(voiceTracks); }
+  let main = null, game = null, voice = null;
+  if (R.native) { if (R.screen.getAudioTracks().length) game = new MediaStream(R.screen.getAudioTracks()); if (voiceTracks.length) voice = new MediaStream(voiceTracks); }
+  else if (R.screen) { main = new MediaStream([...R.screen.getVideoTracks(), ...R.screen.getAudioTracks()]); if (voiceTracks.length) voice = new MediaStream(voiceTracks); }
   else main = new MediaStream(voiceTracks);
   try {
-    R.recs = [recorderFor(main, 'main')]; if (voice) R.recs.push(recorderFor(voice, 'voice'));
-  } catch (e) { R.state = 'idle'; $('#recBtn').disabled = false; return toast('Could not start recording: ' + e.message); }
+    R.recs = [];
+    if (main) R.recs.push(recorderFor(main, 'main'));
+    if (game) R.recs.push(recorderFor(game, 'game'));
+    if (voice) R.recs.push(recorderFor(voice, 'voice'));
+  } catch (e) {
+    if (R.native) DESK.nativeStop(R.native.id, 'failed take.mp4');
+    R.state = 'idle'; $('#recBtn').disabled = false; return toast('Could not start recording: ' + e.message);
+  }
   R.withScreen = !!R.screen; R.camVideo = !!R.cam; R.withMic = !!R.mic;
   if (DESK) {
-    const base = 'Take ' + new Date().toLocaleString('sv-SE').slice(0, 16).replace(/:/g, '.');
-    R.recs.forEach(r => { r.disk = DESK.recOpen(`${base} - ${r.kind === 'main' ? (R.screen ? 'screen' : 'camera') : 'camera'}.webm`); r.diskQ = r.disk; });
+    R.takeBase = 'Take ' + new Date().toLocaleString('sv-SE').slice(0, 19).replace(/:/g, '.');
+    const label = { main: R.screen ? 'screen' : 'camera', game: 'game sound', voice: 'camera' };
+    R.recs.forEach(r => { r.disk = DESK.recOpen(`${R.takeBase} - ${label[r.kind]}.webm`); r.diskQ = r.disk; });
     DESK.recState?.(true);
   }
   R.recs.forEach(r => r.start(1000));
+  if (R.native) {
+    // How long after the screen video started the sound began, so the editor can line them up.
+    R.vLag = Math.max(0, (Date.now() - R.native.startedAt) / 1000);
+    R.screen.getVideoTracks()[0]?.applyConstraints({ frameRate: { max: 5 } }).catch(() => {});
+  }
   R.state = 'rec'; R.elapsed = 0; R.segStart = performance.now();
   $('#recBtn').disabled = true; $('#recBtn').classList.add('live'); $('#recBtn').textContent = '● Recording';
   $('#pauseBtn').disabled = false; $('#stopBtn').disabled = false; $('#recBadge').hidden = false; $('#recBadge').classList.remove('paused');
@@ -976,48 +1011,69 @@ async function startRec(opts = {}) {
 const recElapsed = () => R.elapsed + (R.state === 'rec' ? (performance.now() - R.segStart) / 1000 : 0);
 function updRecTime() { const t = recElapsed(); $('#recTime').textContent = fmt(t); document.title = (R.state === 'paused' ? '❚❚ ' : '● REC ') + fmt(t) + ' · Promo Studio'; }
 function togglePause() {
+  // The fast recorder can't pause, so pausing ends the take and resuming starts the next one.
+  if (R.native && R.state === 'rec') { R.splitPause = true; stopRec(); return; }
+  if (R.state === 'split') { R.splitPause = false; startRec({ now: true }); return; }
   if (R.state === 'rec') { R.recs.forEach(r => r.pause()); R.elapsed = recElapsed(); R.state = 'paused'; $('#pauseBtn').textContent = 'Resume'; $('#recBadge').classList.add('paused'); }
   else if (R.state === 'paused') { R.recs.forEach(r => r.resume()); R.segStart = performance.now(); R.state = 'rec'; $('#pauseBtn').textContent = 'Pause'; $('#recBadge').classList.remove('paused'); }
   updRecTime();
 }
+function resetRecUi() {
+  $('#recBtn').disabled = false; $('#recBtn').classList.remove('live'); $('#recBtn').innerHTML = DESK ? `● Record <span class="kbd">${HK.record}</span>` : '● Record';
+  $('#pauseBtn').disabled = true; $('#pauseBtn').innerHTML = DESK ? `Pause <span class="kbd">${HK.pause}</span>` : 'Pause'; $('#stopBtn').disabled = true; $('#recBadge').hidden = true;
+}
 async function stopRec() {
   if (R.state === 'count') { R.state = 'idle'; $('#recBtn').disabled = false; return; }
+  if (R.state === 'split') { R.state = 'idle'; R.splitPause = false; resetRecUi(); document.title = 'Promo Studio'; if (S.rec.openEditor) setView('edit'); return; }
   if (R.state !== 'rec' && R.state !== 'paused') return;
   const dur = recElapsed(); R.state = 'stopping'; clearInterval(R.timer);
   R.recs.forEach(r => { try { r.stop(); } catch (e) {} });
-  const blobs = await Promise.all(R.recs.map(r => r.done));
-  const files = await Promise.all(R.recs.map(r => r.saved()));
-  DESK?.recState?.(false);
-  R.state = 'idle'; document.title = 'Promo Studio';
-  $('#recBtn').disabled = false; $('#recBtn').classList.remove('live'); $('#recBtn').textContent = '● Record';
-  $('#pauseBtn').disabled = true; $('#pauseBtn').textContent = 'Pause'; $('#stopBtn').disabled = true; $('#recBadge').hidden = true;
-  const voiceBlob = blobs[1] || null;
+  const nat = R.native; R.native = null;
+  const [blobs, files, nativeFile] = await Promise.all([
+    Promise.all(R.recs.map(r => r.done)), Promise.all(R.recs.map(r => r.saved())),
+    nat ? DESK.nativeStop(nat.id, `${R.takeBase} - screen.mp4`) : null,
+  ]);
+  if (nat) R.screen?.getVideoTracks()[0]?.applyConstraints({ frameRate: { ideal: +S.rec.fps, max: +S.rec.fps } }).catch(() => {});
+  const got = k => { const i = R.recs.findIndex(r => r.kind === k); return i < 0 ? {} : { blob: blobs[i], file: files[i] }; };
+  const split = R.splitPause;
+  DESK?.recState?.(split);
+  R.state = split ? 'split' : 'idle'; document.title = split ? '❚❚ Paused · Promo Studio' : 'Promo Studio';
+  resetRecUi();
+  if (split) { $('#pauseBtn').disabled = false; $('#pauseBtn').innerHTML = `Resume <span class="kbd">${HK.pause}</span>`; $('#stopBtn').disabled = false; $('#recBadge').hidden = false; $('#recBadge').classList.add('paused'); }
+  const voice = got('voice'), main = got('main'), game = got('game');
+  if (nat && !nativeFile) toast('The screen recording could not be saved. Your sound and camera were kept.', 6000);
   await addClip({
-    main: blobs[0], cam: voiceBlob, duration: dur,
-    hasCamVideo: !!voiceBlob && R.camVideo, hasVoice: !!voiceBlob && R.withMic, files,
+    main: main.blob, nativeFile, game: game.blob, cam: voice.blob, duration: dur, off: nat ? -R.vLag : 0,
+    hasCamVideo: !!voice.blob && R.camVideo, hasVoice: !!voice.blob && R.withMic,
+    files: [nativeFile || main.file, voice.file, game.file].filter(Boolean),
     name: 'Take ' + (S.clips.filter(c => c.name.startsWith('Take')).length + 1),
   });
-  if (files[0]) notify('Take saved', 'Added to your timeline.');
+  if (split) return;
+  notify('Take saved', 'Added to your timeline.');
   if (S.rec.openEditor) setView('edit'); else toast('Take saved and added to the timeline.');
 }
 
 // ---------------------------------------------------------------- clips
-async function addClip({ main, cam, duration, hasCamVideo, hasVoice, name, files }) {
+async function addClip({ main, nativeFile, game, cam, off = 0, duration, hasCamVideo, hasVoice, name, files }) {
+  if (!main && !nativeFile) return;
   pushHist();
-  const c = { id: uid(), name, files: files || null, duration: duration || 0, hasCamVideo: !!hasCamVideo, hasVoice: !!hasVoice, thumb: '', url: URL.createObjectURL(main), camUrl: cam ? URL.createObjectURL(cam) : null, blob: main, camBlob: cam };
+  const c = { id: uid(), name, files: files || null, duration: duration || 0, hasCamVideo: !!hasCamVideo, hasVoice: !!hasVoice, thumb: '', off,
+    native: !!nativeFile, url: nativeFile ? mediaUrl(nativeFile) : URL.createObjectURL(main), blob: main || null,
+    camUrl: cam ? URL.createObjectURL(cam) : null, camBlob: cam, gameUrl: game ? URL.createObjectURL(game) : null, gameBlob: game || null };
   clipEls(c);
   const real = await loadMeta(c.el);
   if (real > 0) c.duration = real;
-  if (c.camEl) await loadMeta(c.camEl);
-  if (!(c.duration > 0)) { toast('That file could not be read as video.'); c.el.remove(); c.camEl?.remove(); return; }
+  for (const s of subs(c)) await loadMeta(s);
+  if (!(c.duration > 0)) { toast('That file could not be read as video.'); c.el.remove(); subs(c).forEach(s => s.remove()); return; }
   c.thumb = await grabThumb(c.url, Math.min(1, c.duration / 3));
   S.clips.push(c);
   const seg = { id: uid(), kind: 'clip', clipId: c.id, in: 0, out: c.duration, hideCam: false };
   const last = S.segments[S.segments.length - 1];
   if (last && last.kind === 'card' && S.segments.length > 0) S.segments.splice(S.segments.length - 1, 0, seg); else S.segments.push(seg);
   S.sel = { type: 'seg', id: seg.id };
-  const ok1 = await IDB.put('blobs', c.id + ':main', main);
+  const ok1 = main ? await IDB.put('blobs', c.id + ':main', main) : true;
   if (cam) await IDB.put('blobs', c.id + ':cam', cam);
+  if (game) await IDB.put('blobs', c.id + ':game', game);
   if (!ok1) toast('This take is too big to keep in browser storage. Download it from the Clips list so you do not lose it.', 6000);
   saveProject(); renderAll();
   const L = layout(); const e = L.find(x => x.s.id === seg.id); if (e) seek(e.start);
@@ -1025,10 +1081,11 @@ async function addClip({ main, cam, duration, hasCamVideo, hasVoice, name, files
 async function deleteClip(id) {
   pushHist();
   const c = clipById(id); if (!c) return;
-  c.el?.remove(); c.camEl?.remove(); URL.revokeObjectURL(c.url); if (c.camUrl) URL.revokeObjectURL(c.camUrl);
+  c.el?.remove(); subs(c).forEach(s => s.remove());
+  for (const u of [c.url, c.camUrl, c.gameUrl]) if (u?.startsWith('blob:')) URL.revokeObjectURL(u);
   S.clips = S.clips.filter(x => x.id !== id); S.segments = S.segments.filter(s => s.clipId !== id);
   if (S.sel?.type === 'seg' && !segById(S.sel.id)) S.sel = null;
-  IDB.del('blobs', id + ':main'); IDB.del('blobs', id + ':cam');
+  IDB.del('blobs', id + ':main'); IDB.del('blobs', id + ':cam'); IDB.del('blobs', id + ':game');
   H.past = []; H.future = []; updUndo(); // history can't bring back deleted media
   saveProject(); renderAll(); seek(P.t);
 }
@@ -1294,9 +1351,9 @@ async function startExport() {
   if (!mime) return toast('This browser cannot export video. Use Chrome or Edge.');
   setView('edit');
   const [W, H] = outSize(); const cv = $('#edCanvas'); cv.width = W; cv.height = H;
-  const vs = cv.captureStream(30);
+  const vs = cv.captureStream(60);
   const stream = new MediaStream([...vs.getVideoTracks(), ...AE.dest.stream.getAudioTracks()]);
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: W * H > 1.5e6 ? 12e6 : 6e6, audioBitsPerSecond: 192000 });
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: W * H > 1.5e6 ? 16e6 : 8e6, audioBitsPerSecond: 192000 });
   const chunks = []; rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
   P.exporting = { rec, mime, cancelled: false, vs };
   AE.monitor.gain.value = S.out.monitor ? 1 : 0;
@@ -1475,6 +1532,10 @@ async function setupDesktop() {
     <li>Every take is also saved to <b>${esc(info.outDir)}</b> as you record, so nothing is lost if something crashes.</li></ul>`;
   $('#sysHint').textContent = info.systemAudio ? 'Game and Discord sound is recorded when you tick the sound box after choosing a screen.' : 'Choose a screen to record.';
   $('#pickerAudioRow').hidden = !info.systemAudio;
+  nativeInfo().then(n => {
+    const names = { h264_nvenc: 'your NVIDIA graphics card', h264_amf: 'your AMD graphics card', h264_qsv: 'Intel Quick Sync', h264_mf: 'Windows hardware encoding', libx264: 'the CPU (no supported graphics card found)' };
+    if (n.available) { $('#encHint').hidden = false; $('#encHint').textContent = `Whole-screen recordings are encoded with ${names[n.best] || n.best}.`; }
+  });
   $('#exportHint').textContent = 'Export plays the edit once in real time, so a 60-second video takes about 60 seconds. Keep Promo Studio open (not minimized) while it runs. Videos save to your Videos\\Promo Studio folder.';
   $('#pickerGrid').addEventListener('click', e => {
     const b = e.target.closest('.src'); if (!b) return;
@@ -1483,9 +1544,9 @@ async function setupDesktop() {
   $('#pickerGrid').addEventListener('dblclick', e => { if (e.target.closest('.src')) $('#pickerOk').click(); });
   $('#pickerRefresh').onclick = openPicker;
   $('#pickerCancel').onclick = closePicker;
-  $('#pickerOk').onclick = async () => { if (!pickerSel) return; await DESK.chooseSource(pickerSel, $('#pickerAudio').checked && info.systemAudio); closePicker(); startScreen({ noAudio: !($('#pickerAudio').checked && info.systemAudio) }); };
+  $('#pickerOk').onclick = async () => { if (!pickerSel) return; R.srcId = pickerSel; await DESK.chooseSource(pickerSel, $('#pickerAudio').checked && info.systemAudio); closePicker(); startScreen({ noAudio: !($('#pickerAudio').checked && info.systemAudio) }); };
   DESK.onHotkey(a => {
-    if (a === 'record') { if (R.state === 'idle') startRec({ now: true }); else if (R.state === 'rec' || R.state === 'paused') stopRec(); }
+    if (a === 'record') { if (R.state === 'idle') startRec({ now: true }); else if (R.state === 'rec' || R.state === 'paused' || R.state === 'split') stopRec(); }
     else if (a === 'pause') togglePause();
   });
   DESK.onUpdate(u => {

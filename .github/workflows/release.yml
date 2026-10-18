@@ -20,6 +20,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # ffmpeg records the screen with the graphics card's encoder (see native-capture.js).
+      - name: Download ffmpeg
+        shell: bash
+        run: |
+          curl -sSL -o ffmpeg.zip https://github.com/GyanD/codexffmpeg/releases/download/8.0/ffmpeg-8.0-essentials_build.zip
+          echo "647e467caf82b9fa200a562769b5ff4d736aaf725804ed2c64ea9752106fa569  ffmpeg.zip" | sha256sum -c -
+          unzip -q -j ffmpeg.zip 'ffmpeg-8.0-essentials_build/bin/ffmpeg.exe' -d vendor
+          rm ffmpeg.zip
       # Create the release first so the parallel uploads below don't race to create it.
       - name: Create release if missing
         shell: bash
