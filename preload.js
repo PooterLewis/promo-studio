@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('studio', {
   nativeStart: opts => ipcRenderer.invoke('native:start', opts),
   nativeStop: (id, name) => ipcRenderer.invoke('native:stop', id, name),
   installUpdate: () => ipcRenderer.invoke('update:install'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
   onHotkey: fn => ipcRenderer.on('hotkey', (e, action) => fn(action)),
   onUpdate: fn => ipcRenderer.on('update', (e, info) => fn(info)),
 });

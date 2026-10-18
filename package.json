@@ -1,7 +1,7 @@
 {
   "name": "promo-studio",
   "productName": "Promo Studio",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Record your screen, camera and game audio, edit, and export promo videos.",
   "main": "main.js",
   "author": "PooterLewis",

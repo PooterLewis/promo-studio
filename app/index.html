@@ -222,7 +222,7 @@ main{min-height:0;overflow:hidden}
     <button class="tab" role="tab" data-view="rec" aria-selected="true" id="tabRec">Record</button>
     <button class="tab" role="tab" data-view="edit" aria-selected="false" id="tabEdit">Edit <span id="segCount" class="pill">0</span></button>
   </nav>
-  <div class="top-right"><div id="updateBar" class="update-bar" hidden><span id="updateText"></span><button class="btn small primary" id="updateBtn" hidden>Restart to update</button></div><label class="sr-only" for="themeSel">Theme</label><select id="themeSel" class="theme-sel" title="Theme"><option value="dark">Dark mode</option><option value="light">Light mode</option><option value="system">Match Windows</option></select><button class="btn small" id="openFolder" hidden>Open videos folder</button><span id="saveState" class="muted small">Projects save in this browser</span><span id="appVer" class="small muted"></span></div>
+  <div class="top-right"><div id="updateBar" class="update-bar" hidden><span id="updateText"></span><button class="btn small primary" id="updateBtn" hidden>Restart to update</button></div><label class="sr-only" for="themeSel">Theme</label><select id="themeSel" class="theme-sel" title="Theme"><option value="dark">Dark mode</option><option value="light">Light mode</option><option value="system">Match Windows</option></select><button class="btn small" id="openFolder" hidden>Open videos folder</button><span id="saveState" class="muted small">Projects save in this browser</span><span id="appVer" class="small muted"></span><button class="btn small" id="checkUpd" hidden>Update</button></div>
 </header>
 
 <main>
@@ -1549,12 +1549,31 @@ async function setupDesktop() {
     if (a === 'record') { if (R.state === 'idle') startRec({ now: true }); else if (R.state === 'rec' || R.state === 'paused' || R.state === 'split') stopRec(); }
     else if (a === 'pause') togglePause();
   });
+  // The Update button checks, downloads and installs in one click. Updates found in
+  // the background wait for "Restart to update" so a take is never cut off.
+  let wantInstall = false;
+  const busy = () => R.state !== 'idle' || P.exporting;
+  const install = () => { if (busy()) { toast('Finish recording or exporting first.'); return false; } $('#updateText').textContent = 'Installing, Promo Studio will reopen…'; DESK.installUpdate(); return true; };
+  const doneChecking = () => { $('#checkUpd').disabled = false; $('#checkUpd').textContent = 'Update'; };
+  $('#checkUpd').hidden = false;
+  $('#checkUpd').onclick = () => {
+    if (!$('#updateBtn').hidden) { install(); return; }
+    wantInstall = true; $('#checkUpd').disabled = true; $('#checkUpd').textContent = 'Checking…'; DESK.checkUpdate();
+  };
   DESK.onUpdate(u => {
+    if (u.state === 'checking') return;
+    if (u.state === 'none' || u.state === 'dev' || u.state === 'error') {
+      doneChecking();
+      if (wantInstall) toast(u.state === 'none' ? `You're on the latest version (${u.version}).` : u.state === 'dev' ? 'Updates only work in the installed app.' : "Couldn't check for updates. Check your internet and try again.");
+      wantInstall = false; return;
+    }
     $('#updateBar').hidden = false;
-    if (u.state === 'ready') { $('#updateText').textContent = `Version ${u.version} is ready.`; $('#updateBtn').hidden = false; }
-    else $('#updateText').textContent = 'Downloading update' + (u.percent != null ? ` ${u.percent}%` : '…');
+    if (u.state === 'ready') {
+      doneChecking(); $('#updateText').textContent = `Version ${u.version} is ready.`; $('#updateBtn').hidden = false;
+      if (wantInstall) { wantInstall = false; install(); }
+    } else { $('#checkUpd').textContent = 'Updating…'; $('#updateText').textContent = 'Downloading update' + (u.percent != null ? ` ${u.percent}%` : '…'); }
   });
-  $('#updateBtn').onclick = () => { if (R.state === 'rec' || R.state === 'paused' || P.exporting) return toast('Finish recording or exporting first.'); DESK.installUpdate(); };
+  $('#updateBtn').onclick = install;
 }
 
 function setTheme(t) {

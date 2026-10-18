@@ -68,7 +68,7 @@ function setupHotkeys() {
 }
 
 function setupUpdates() {
-  if (!app.isPackaged) return;
+  if (!app.isPackaged) { ipcMain.handle('update:check', () => send('update', { state: 'dev' })); return; }
   let autoUpdater;
   try { ({ autoUpdater } = require('electron-updater')); } catch (e) { return; }
   autoUpdater.autoDownload = true;
@@ -76,8 +76,11 @@ function setupUpdates() {
   autoUpdater.on('update-available', info => send('update', { state: 'downloading', version: info.version }));
   autoUpdater.on('download-progress', p => send('update', { state: 'downloading', percent: Math.round(p.percent) }));
   autoUpdater.on('update-downloaded', info => send('update', { state: 'ready', version: info.version }));
-  autoUpdater.on('error', e => console.error('update error', e && e.message));
-  ipcMain.handle('update:install', () => autoUpdater.quitAndInstall());
+  autoUpdater.on('update-not-available', () => send('update', { state: 'none', version: app.getVersion() }));
+  autoUpdater.on('error', e => { console.error('update error', e && e.message); send('update', { state: 'error' }); });
+  // Silent install, then reopen the app on the new version.
+  ipcMain.handle('update:install', () => autoUpdater.quitAndInstall(true, true));
+  ipcMain.handle('update:check', () => { send('update', { state: 'checking' }); return check(); });
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
   setTimeout(check, 4000);
   setInterval(check, 4 * 60 * 60 * 1000);
