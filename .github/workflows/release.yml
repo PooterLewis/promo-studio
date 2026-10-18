@@ -20,6 +20,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Create the release first so the parallel uploads below don't race to create it.
+      - name: Create release if missing
+        shell: bash
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          gh release view "$v" >/dev/null 2>&1 || gh release create "$v" --title "$v" --notes "Promo Studio $v" --target "$GITHUB_SHA"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish installer
         run: npx electron-builder --win --publish always
         env:
