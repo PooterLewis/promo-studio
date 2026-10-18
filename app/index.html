@@ -355,6 +355,12 @@ main{min-height:0;overflow:hidden}
       <div class="pane" data-pane="audio" hidden>
         <div class="row"><label for="volGame">Game + Discord</label><input type="range" id="volGame" min="0" max="2" step="0.01" data-bind="audio.game"></div>
         <div class="row"><label for="volVoice">Your mic</label><input type="range" id="volVoice" min="0" max="2" step="0.01" data-bind="audio.voice"></div>
+        <div class="pane-h"><h3>Clean up sound</h3></div>
+        <label class="check"><input type="checkbox" id="fxDenoise" data-bind="audio.denoise"> Cut background noise on my mic</label>
+        <div class="row" id="gateRow"><label for="gateLevel">Noise cut level</label><input type="range" id="gateLevel" min="-70" max="-25" step="1" data-bind="audio.gateLevel"></div>
+        <label class="check"><input type="checkbox" id="fxVoiceComp" data-bind="audio.voiceComp"> Even out my voice (compressor)</label>
+        <label class="check"><input type="checkbox" id="fxGameComp" data-bind="audio.gameComp"> Even out game + Discord (compressor)</label>
+        <p class="hint">Noise cut mutes your mic between words. If the starts of words get clipped, move the level left. If you still hear hiss or keyboard, move it right. Loud peaks are always kept from distorting.</p>
         <div class="pane-h"><h3>Background music</h3>
           <label class="btn small" for="importMusic">Choose file</label>
           <input type="file" accept="audio/*" id="importMusic" hidden>
@@ -449,7 +455,7 @@ const S = {
   texts: [],      // {id,text,start,end,pos,size,color,box}
   cam: { show: true, cx: 0.86, cy: 0.79, size: 0.3, shape: 'circle', border: '#f0a73a', borderW: 0.007, mirror: true },
   out: { aspect: '16:9', fit: 'blur', panX: 0.5, quality: '1080', format: 'mp4', monitor: true },
-  audio: { game: 1, voice: 1, musicVol: 0.3, music: null },  // music {name,duration,url}
+  audio: { game: 1, voice: 1, musicVol: 0.3, music: null, denoise: true, gateLevel: -50, voiceComp: true, gameComp: false },  // music {name,duration,url}
   rec: { fps: '60', countdown: true, openEditor: true },
   sel: null,      // {type:'seg'|'text', id}
 };
@@ -496,7 +502,7 @@ function saveProject() {
     const data = {
       clips: S.clips.map(c => ({ id: c.id, name: c.name, files: c.files || null, duration: c.duration, hasCamVideo: c.hasCamVideo, hasVoice: c.hasVoice, hasGame: !!c.gameUrl, native: !!c.native, off: c.off || 0, thumb: c.thumb })),
       segments: S.segments, texts: S.texts, cam: S.cam, out: S.out, rec: S.rec,
-      audio: { game: S.audio.game, voice: S.audio.voice, musicVol: S.audio.musicVol, music: S.audio.music ? { name: S.audio.music.name, duration: S.audio.music.duration } : null },
+      audio: { game: S.audio.game, voice: S.audio.voice, musicVol: S.audio.musicVol, denoise: S.audio.denoise, gateLevel: S.audio.gateLevel, voiceComp: S.audio.voiceComp, gameComp: S.audio.gameComp, music: S.audio.music ? { name: S.audio.music.name, duration: S.audio.music.duration } : null },
     };
     const ok = await IDB.put('kv', 'project', data);
     $('#saveState').textContent = ok ? 'Saved in this browser' : 'Not saved: browser storage is off';
@@ -506,7 +512,7 @@ async function loadProject() {
   const data = await IDB.get('kv', 'project');
   if (!data) { starterProject(); return; }
   Object.assign(S.cam, data.cam || {}); Object.assign(S.out, data.out || {}); Object.assign(S.rec, data.rec || {});
-  if (data.audio) { S.audio.game = data.audio.game ?? 1; S.audio.voice = data.audio.voice ?? 1; S.audio.musicVol = data.audio.musicVol ?? 0.3; }
+  if (data.audio) { S.audio.game = data.audio.game ?? 1; S.audio.voice = data.audio.voice ?? 1; S.audio.musicVol = data.audio.musicVol ?? 0.3; for (const k of ['denoise', 'gateLevel', 'voiceComp', 'gameComp']) if (data.audio[k] != null) S.audio[k] = data.audio[k]; }
   for (const c of data.clips || []) {
     const main = c.native ? null : await IDB.get('blobs', c.id + ':main');
     if (!main && !(c.native && c.files?.[0])) continue;
@@ -525,11 +531,11 @@ async function loadProject() {
 
 // ---------------------------------------------------------------- undo
 const H = { past: [], future: [] };
-const snap = () => JSON.stringify({ segments: S.segments, texts: S.texts, cam: S.cam, out: S.out, vol: [S.audio.game, S.audio.voice, S.audio.musicVol] });
+const snap = () => JSON.stringify({ segments: S.segments, texts: S.texts, cam: S.cam, out: S.out, vol: [S.audio.game, S.audio.voice, S.audio.musicVol, S.audio.denoise, S.audio.gateLevel, S.audio.voiceComp, S.audio.gameComp] });
 function pushHist(prev) { const s = prev || snap(); if (H.past[H.past.length - 1] === s) return; H.past.push(s); if (H.past.length > 100) H.past.shift(); H.future = []; updUndo(); }
 function restoreSnap(str) {
   const d = JSON.parse(str); S.segments = d.segments; S.texts = d.texts; Object.assign(S.cam, d.cam); Object.assign(S.out, d.out);
-  [S.audio.game, S.audio.voice, S.audio.musicVol] = d.vol; applyVolumes();
+  [S.audio.game, S.audio.voice, S.audio.musicVol, S.audio.denoise, S.audio.gateLevel, S.audio.voiceComp, S.audio.gameComp] = d.vol; applyVolumes();
   if (S.sel && !(S.sel.type === 'seg' ? segById(S.sel.id) : textById(S.sel.id))) S.sel = null;
   renderAll(); seek(P.t); saveProject();
 }
@@ -543,13 +549,64 @@ function ensureAudio() {
   if (AE.ctx) { if (AE.ctx.state === 'suspended') AE.ctx.resume().catch(() => {}); return AE.ctx; }
   const ctx = AE.ctx = new (window.AudioContext || window.webkitAudioContext)();
   AE.master = ctx.createGain(); AE.monitor = ctx.createGain(); AE.dest = ctx.createMediaStreamDestination();
-  AE.master.connect(AE.monitor); AE.monitor.connect(ctx.destination); AE.master.connect(AE.dest);
+  // A limiter on the final mix stops loud moments from clipping, in preview and export.
+  AE.limiter = ctx.createDynamicsCompressor();
+  setParams(AE.limiter, { threshold: -2, knee: 0, ratio: 20, attack: 0.002, release: 0.1 });
+  AE.master.connect(AE.limiter); AE.limiter.connect(AE.monitor); AE.monitor.connect(ctx.destination); AE.limiter.connect(AE.dest);
   AE.game = ctx.createGain(); AE.voice = ctx.createGain(); AE.musicG = ctx.createGain();
   [AE.game, AE.voice, AE.musicG].forEach(g => g.connect(AE.master));
+  // Mic: rumble filter -> noise gate -> compressor -> makeup gain -> volume.
+  AE.voiceIn = ctx.createGain(); AE.hp = ctx.createBiquadFilter(); AE.hp.type = 'highpass'; AE.hp.Q.value = 0.7;
+  AE.vComp = ctx.createDynamicsCompressor(); AE.vMake = ctx.createGain();
+  AE.voiceIn.connect(AE.hp); AE.hp.connect(AE.vComp); AE.vComp.connect(AE.vMake); AE.vMake.connect(AE.voice);
+  // Game + Discord: optional compressor that lifts quiet sounds and tames loud ones.
+  AE.gameIn = ctx.createGain(); AE.gComp = ctx.createDynamicsCompressor(); AE.gMake = ctx.createGain();
+  AE.gameIn.connect(AE.gComp); AE.gComp.connect(AE.gMake); AE.gMake.connect(AE.game);
+  addGate(ctx);
   applyVolumes();
   return ctx;
 }
-function applyVolumes() { if (!AE.ctx) return; AE.game.gain.value = S.audio.game; AE.voice.gain.value = S.audio.voice; }
+function setParams(node, p) { for (const [k, v] of Object.entries(p)) node[k].value = v; }
+// The noise gate turns the mic down between words, so fans, keyboards and room hiss
+// disappear when you aren't talking. It runs as an AudioWorklet and slots in once loaded.
+const GATE_SRC = `registerProcessor('gate', class extends AudioWorkletProcessor {
+  static get parameterDescriptors() { return [{ name: 'threshold', defaultValue: -50 }, { name: 'on', defaultValue: 1 }]; }
+  constructor() { super(); this.env = 0; this.g = 1; this.hold = 0; }
+  process(ins, outs, p) {
+    const inp = ins[0], out = outs[0]; if (!inp.length) return true;
+    const thr = Math.pow(10, p.threshold[0] / 20), on = p.on[0] > 0.5, n = inp[0].length;
+    const envA = Math.exp(-1 / (0.005 * sampleRate)), envR = Math.exp(-1 / (0.08 * sampleRate));
+    const gA = Math.exp(-1 / (0.003 * sampleRate)), gR = Math.exp(-1 / (0.12 * sampleRate)), holdN = 0.2 * sampleRate, floor = 0.03;
+    for (let i = 0; i < n; i++) {
+      let x = 0; for (let c = 0; c < inp.length; c++) x = Math.max(x, Math.abs(inp[c][i]));
+      this.env = x > this.env ? envA * this.env + (1 - envA) * x : envR * this.env + (1 - envR) * x;
+      if (this.env > thr) this.hold = holdN; else if (this.hold > 0) this.hold--;
+      const target = !on || this.hold > 0 ? 1 : floor;
+      this.g = target > this.g ? gA * this.g + (1 - gA) * target : gR * this.g + (1 - gR) * target;
+      for (let c = 0; c < out.length; c++) out[c][i] = (inp[c] || inp[0])[i] * this.g;
+    }
+    return true;
+  }
+});`;
+async function addGate(ctx) {
+  try {
+    const url = URL.createObjectURL(new Blob([GATE_SRC], { type: 'text/javascript' }));
+    await ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
+    AE.gate = new AudioWorkletNode(ctx, 'gate', { channelCountMode: 'max' });
+    AE.hp.disconnect(); AE.hp.connect(AE.gate); AE.gate.connect(AE.vComp);
+    applyVolumes();
+  } catch (e) { console.warn('noise gate unavailable', e); }
+}
+function applyVolumes() {
+  if (!AE.ctx) return; const a = S.audio;
+  AE.game.gain.value = a.game; AE.voice.gain.value = a.voice;
+  AE.hp.frequency.value = a.denoise ? 90 : 10;
+  if (AE.gate) { AE.gate.parameters.get('on').value = a.denoise ? 1 : 0; AE.gate.parameters.get('threshold').value = a.gateLevel; }
+  setParams(AE.vComp, a.voiceComp ? { threshold: -26, knee: 8, ratio: 4, attack: 0.004, release: 0.2 } : { threshold: 0, knee: 0, ratio: 1, attack: 0.003, release: 0.25 });
+  AE.vMake.gain.value = a.voiceComp ? 2 : 1;
+  setParams(AE.gComp, a.gameComp ? { threshold: -24, knee: 10, ratio: 3, attack: 0.01, release: 0.3 } : { threshold: 0, knee: 0, ratio: 1, attack: 0.003, release: 0.25 });
+  AE.gMake.gain.value = a.gameComp ? 1.6 : 1;
+}
 function routeEl(el, bus) { if (!AE.ctx || el._routed) return; try { AE.ctx.createMediaElementSource(el).connect(bus); el._routed = true; } catch (e) { console.warn(e); } }
 
 const mediaUrl = file => 'media://local/file?p=' + encodeURIComponent(file);
@@ -560,7 +617,7 @@ function mkVideo(url) {
 }
 function clipEls(c) {
   if (!c.el) { c.el = mkVideo(c.url); if (c.camUrl) c.camEl = mkVideo(c.camUrl); if (c.gameUrl) c.gameEl = mkVideo(c.gameUrl); }
-  ensureAudio(); routeEl(c.el, AE.game); if (c.camEl) routeEl(c.camEl, AE.voice); if (c.gameEl) routeEl(c.gameEl, AE.game);
+  ensureAudio(); routeEl(c.el, AE.gameIn); if (c.camEl) routeEl(c.camEl, AE.voiceIn); if (c.gameEl) routeEl(c.gameEl, AE.gameIn);
 }
 // The camera/mic and game-sound files play alongside the screen video. off is how far
 // their timeline is ahead of the screen video's (set when the screen is recorded separately).
@@ -1215,6 +1272,7 @@ function syncBinds() {
   $$('[data-aspect]').forEach(b => b.setAttribute('aria-pressed', b.dataset.aspect === S.out.aspect));
   $$('[data-fit]').forEach(b => b.setAttribute('aria-pressed', b.dataset.fit === S.out.fit));
   $('#panRow').hidden = S.out.fit !== 'fill';
+  $('#gateRow').hidden = !S.audio.denoise;
   const fmtOk = pickMime(mp4Types).length > 0; const mp4Opt = $('#fmtSel option[value="mp4"]');
   if (!fmtOk) { mp4Opt.disabled = true; mp4Opt.textContent = 'MP4 (not supported in this browser)'; if (S.out.format === 'mp4') $('#fmtSel').value = 'webm'; }
 }
@@ -1432,7 +1490,7 @@ document.addEventListener('input', e => {
   const [o, k] = el.dataset.bind.split('.');
   const cur = S[o][k];
   S[o][k] = el.type === 'checkbox' ? el.checked : typeof cur === 'number' ? +el.value : el.value;
-  if (o === 'audio') { applyVolumes(); syncMusic(false); }
+  if (o === 'audio') { applyVolumes(); syncMusic(false); if (k === 'denoise') syncBinds(); }
   if (k === 'size' && o === 'cam') syncBinds();
   saveProject();
 });
