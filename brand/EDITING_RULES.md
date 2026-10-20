@@ -16,12 +16,13 @@ Built on Kyrn's own UI style sheet (Kyrn repo `art/ui/style/sheet.png`) and the 
 ## Captions
 - At most 3 captions in 30 seconds: a hook, one mid-video line, and the CTA.
 - A caption must describe what is on screen at that moment: real numbers and unit names from the game UI (Shaper, Trooper, Skyray, Lasher, Mender), not generic hype.
+- Plain and factual, never a slogan. Jack called "62 UNITS. ONE ORDER." corny. Good: "A NEW RTS GAME", or a unit or building name.
 - Banned: trailer clichés such as "unleash chaos", "no mercy", "crush your enemies", "raise your army".
 - A caption stays up for its whole shot, at least 1.5 seconds.
 
 ## Branding
 - "KYRN" appears once, on the end card. No repeated tag on every shot.
-- CTA wording: **AN RTS GAME · COMING SOON** (Jack, Oct 20; no "Roblox" tagline). It goes on the end card, and optionally over the last gameplay shot.
+- CTA wording: **COMING SOON TO ROBLOX**, on the gold button on the end card (optionally also over the last gameplay shot).
 
 ## Story and clip choice
 - 15 to 30 seconds, 6 to 10 shots, each 1.5 to 4 seconds.
