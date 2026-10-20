@@ -1705,7 +1705,7 @@ function libCard({ title, sub, file, files, acts }) {
     <div class="meta"><b title="${esc(title)}">${esc(title)}</b><span class="small muted">${esc(sub)}${used ? ' · in your edit' : ''}</span></div>
     <div class="acts">${acts}</div></div>`;
 }
-async function renderLibrary() {
+async function renderLibrary(opts = {}) {
   if (!DESK) return;
   const lib = LIB.data = await DESK.libraryList();
   const total = lib.takes.reduce((a, t) => a + t.size, 0) + lib.exports.reduce((a, e) => a + e.size, 0);
@@ -1723,7 +1723,12 @@ async function renderLibrary() {
   })).join('') : '<div class="empty-note">Videos you export from the editor show up here.</div>';
   // Fill in thumbnails and lengths a few at a time, then redraw once.
   const todo = [...lib.takes.map(t => t.parts.screen), ...lib.exports.map(e => e.file)].filter(f => !LIB.thumbs.has(f));
-  if (todo.length) { for (let i = 0; i < todo.length; i += 3) await Promise.all(todo.slice(i, i + 3).map(probeFile)); if (view === 'lib') renderLibrary(); }
+  if (todo.length && !opts.quick && !LIB.busy) {
+    LIB.busy = true;
+    try { for (let i = 0; i < todo.length; i += 3) await Promise.all(todo.slice(i, i + 3).map(probeFile)); }
+    finally { LIB.busy = false; }
+    if (view === 'lib') renderLibrary();
+  }
 }
 async function renderDisk(used) {
   const d = await DESK.storageInfo();
@@ -1842,7 +1847,14 @@ async function sendToPhone(file) {
   $('#phoneName').textContent = / - screen\.(mp4|webm)$/.test(name) ? `${name}. This is the screen video only; export from the editor to include your camera and sound.` : name; $('#phoneQr').src = r.qr; $('#phoneUrl').textContent = r.url; $('#phone').hidden = false;
 }
 $('#phoneClose').onclick = () => { $('#phone').hidden = true; };
-$('#libRefresh').onclick = () => renderLibrary();
+$('#libRefresh').onclick = async () => {
+  const b = $('#libRefresh'); b.disabled = true; b.textContent = 'Refreshing…';
+  try { LIB.thumbs.clear(); LIB.durs.clear(); await renderLibrary({ quick: true }); toast(`Library updated: ${LIB.data.takes.length} recordings, ${LIB.data.exports.length} exported videos.`); }
+  catch (e) { console.error(e); toast("Couldn't read the videos folder. Try again in a moment."); }
+  finally { b.disabled = false; b.textContent = 'Refresh'; }
+  renderLibrary();
+};
+DESK?.onLibraryChanged?.(() => { if (view === 'lib' && !LIB.busy && R.state === 'idle') renderLibrary(); });
 // One-click exports for social sites: vertical for TikTok/Reels/Shorts, wide for YouTube.
 $$('[data-quick]').forEach(b => b.addEventListener('click', () => {
   if (P.exporting) return;

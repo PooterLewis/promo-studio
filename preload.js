@@ -29,5 +29,6 @@ contextBridge.exposeInMainWorld('studio', {
   installUpdate: () => ipcRenderer.invoke('update:install'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   onHotkey: fn => ipcRenderer.on('hotkey', (e, action) => fn(action)),
+  onLibraryChanged: fn => ipcRenderer.on('library:changed', () => fn()),
   onUpdate: fn => ipcRenderer.on('update', (e, info) => fn(info)),
 });

@@ -81,6 +81,15 @@ function restoreShortcut() {
   catch (e) { console.error('shortcut', e); }
 }
 
+// Tell the Library when files appear or change in the videos folder (new takes,
+// exports, or edits Claude drops in), so it updates without pressing Refresh.
+function watchLibrary() {
+  let t = null;
+  try {
+    fs.watch(outDir(), () => { clearTimeout(t); t = setTimeout(() => send('library:changed'), 1500); });
+  } catch (e) { console.error('watch', e); }
+}
+
 function setupUpdates() {
   if (!app.isPackaged) { ipcMain.handle('update:check', () => send('update', { state: 'dev' })); return; }
   let autoUpdater;
@@ -246,7 +255,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   if (process.platform === 'win32') app.setAppUserModelId('com.pooterlewis.promostudio');
-  app.whenReady().then(() => { protocol.handle('media', serveMedia); setupCapture(); native.detect(); createWindow(); setupHotkeys(); setupUpdates(); restoreShortcut(); });
+  app.whenReady().then(() => { protocol.handle('media', serveMedia); setupCapture(); native.detect(); createWindow(); setupHotkeys(); setupUpdates(); restoreShortcut(); watchLibrary(); });
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     for (const w of writers.values()) w.stream.end();
