@@ -241,7 +241,7 @@ ipcMain.handle('claude:request', async (e, req) => {
 ipcMain.handle('claude:open', () => shell.openExternal('https://claude.ai/'));
 ipcMain.handle('phone:share', (e, file) => {
   if (!path.resolve(file).startsWith(path.resolve(outDir()) + path.sep)) return { error: 'outside' };
-  return phone.share(file);
+  return phone.share(file, app.getPath('userData'));
 });
 ipcMain.handle('file:reveal', (e, file) => { if (file && fs.existsSync(file)) shell.showItemInFolder(file); else shell.openPath(outDir()); });
 ipcMain.handle('folder:open', () => shell.openPath(outDir()));
