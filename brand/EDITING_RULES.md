@@ -33,7 +33,7 @@ Built on Kyrn's own UI style sheet (Kyrn repo `art/ui/style/sheet.png`) and the 
 - If one recording doesn't have enough variety, use other takes and say so.
 
 ## Framing (1080x1920)
-- Gameplay fills y=300 to about y=1515: crop about half the width around the action, following where it is, scaled to 1080 wide with soft feathered edges.
+- Keep everything inside the TikTok safe area (Jack, Oct 20): top 210px (search bar), right 140px (like/comment buttons) and bottom 440px (caption) stay clear. Gameplay is 880x990 at x=60, y=400 with soft feathered edges; text is centered on x=500 (the middle of the safe area), at most 840px wide, captions at y=330.
 - Blurred, darkened gameplay fills the rest. No empty band at the top: the caption sits over the top seam.
 - Keep text out of the bottom 380px and top 150px (TikTok/Reels buttons).
 
