@@ -4,10 +4,12 @@ Every Kyrn short follows these rules unless Jack says otherwise for that edit.
 Text comes from `kyrn_text.py` (fonts in `fonts/`, all SIL Open Font License).
 
 ## Text style
-- House style: **glowcap** (Cinzel Decorative titles, Cinzel Black captions, cyan glow, night-navy outline). Alternatives kept in the kit: ember, arcane.
-- Colors come from the game: night `#0a0d26`, cyan glow `#3ff3ff`, magenta spore `#ff3fb8`, ember `#ff8a1f`, gold `#ffd45a`, white `#f4fbff`.
+- The look is **alien**, not fantasy or mystical: strange, sleek letterforms rather than serifs or runes.
+- **No gradients.** Flat solid fills only, with a dark outline and a soft glow.
+- Style: being chosen from signal, hive and glyph (Oct 20). Until Jack picks, use **signal**. The halloween style is reserved for a Halloween event.
+- Colors are based on the game, with a slightly greener glow: night `#0a0d26` (outlines), core `#eafff9` (letters), aqua `#2af5e0` (glow), spore `#ff3fb8` (call to action). Use ember `#ff8a1f` and gold `#ffd45a` for the Halloween event only.
 - Three roles only: `title` (the KYRN logo, end card only), `caption` (gameplay text), `cta` (call to action).
-- All caps, at most 2 lines and about 5 words per line.
+- All caps, at most 2 lines, about 5 words per line.
 
 ## Captions
 - At most 3 captions in 30 seconds: a hook, one mid-video line, and the CTA.
