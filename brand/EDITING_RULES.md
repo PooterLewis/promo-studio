@@ -14,9 +14,9 @@ Built on Kyrn's own UI style sheet (Kyrn repo `art/ui/style/sheet.png`) and the 
 - Three roles only: `title` (the logo, end card only), `caption` (gameplay text), `cta` (call to action). All caps, at most 2 lines, about 5 words per line.
 
 ## Captions
-- Every shot gets a caption, and together the captions explain the strategy (Jack, Oct 20): claim crystal spots, siphons, buildings, walls, troops and beasts, counters, destroy the core to win. Take every fact from the game's docs (Kryn repo `docs/systems/`), never invent stats.
+- Keep captions to the four simple beats, in order (Jack, Oct 20: "you're getting too detailed"): **BUILD YOUR CITY**, **TRAIN YOUR TROOPS**, **SET UP AN INCOME**, **SEND THEM TO BATTLE**. Each beat spans a few shots that show it. No stats, unit names or mechanics.
 - Show plenty of close-up fighting, not only zoomed-out base shots.
-- A caption must describe what is on screen at that moment: real numbers and unit names from the game UI (Shaper, Trooper, Skyray, Lasher, Mender), not generic hype.
+- A caption must match what is on screen while it is up.
 - Plain and factual, never a slogan. Jack called "62 UNITS. ONE ORDER." corny. Good: "A NEW RTS GAME", or a unit or building name.
 - Banned: trailer clichés such as "unleash chaos", "no mercy", "crush your enemies", "raise your army".
 - A caption stays up for its whole shot, at least 1.5 seconds.
@@ -37,7 +37,8 @@ Built on Kyrn's own UI style sheet (Kyrn repo `art/ui/style/sheet.png`) and the 
 - Keep text out of the bottom 380px and top 150px (TikTok/Reels buttons).
 
 ## Sound
-- Background music under the game audio on every edit, cut to the beat where possible. Music sits about 6 dB under the game sound and ducks under big hits.
+- Real battle sound under every fight (Jack, Oct 20), with the music ducked under it. Only takes recorded with a separate "game sound" track have audio; pick fight clips from those.
+- Background music (the game's Waking theme) under the whole edit, cut to the beat where possible.
 - Music must be Jack's own Kyrn soundtrack or royalty-free and safe for TikTok, YouTube and Instagram.
 - Game sound is very quiet when recorded, so normalize the final mix to -14 LUFS, true peak -1.5 dB.
 
