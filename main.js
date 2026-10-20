@@ -111,12 +111,12 @@ ipcMain.handle('rec:close', (e, id) => new Promise(res => {
   writers.delete(id); w.stream.end(() => res(w.file));
 }));
 ipcMain.handle('native:info', () => native.detect());
-ipcMain.handle('native:start', async (e, { sourceId, fps }) => {
+ipcMain.handle('native:start', async (e, { sourceId, fps, small }) => {
   const sources = await desktopCapturer.getSources({ types: ['screen'] });
   const src = sources.find(s => s.id === sourceId);
   if (!src) throw new Error('Only whole screens use the fast recorder');
   const tempFile = uniquePath(`recording-${Date.now()}.part.mp4`);
-  return native.start({ displayId: src.display_id, fps, tempFile });
+  return native.start({ displayId: src.display_id, fps, tempFile, small: !!small });
 });
 ipcMain.handle('native:stop', (e, id, name) => native.stop(id, uniquePath(name)));
 
@@ -163,6 +163,21 @@ ipcMain.handle('library:list', async () => {
   return { dir, takes: [...takes.values()].filter(t => t.parts.screen).sort((a, b) => b.mtime - a.mtime), exports: exports.sort((a, b) => b.mtime - a.mtime) };
 });
 // Deleting moves files to the Recycle Bin, so a mistake can be undone there.
+// Free space on the drive that holds the videos folder.
+ipcMain.handle('storage:info', async () => {
+  try { const st = await fs.promises.statfs(outDir()); return { free: st.bavail * st.bsize, total: st.blocks * st.bsize }; }
+  catch (e) { return null; }
+});
+// Auto-cleanup removes old raw takes for good (not the Recycle Bin), so the space
+// actually comes back. Only the renderer decides which takes qualify.
+ipcMain.handle('library:purge', async (e, files) => {
+  const dir = path.resolve(outDir()) + path.sep; let freed = 0;
+  for (const f of files) {
+    if (!path.resolve(f).startsWith(dir) || !fs.existsSync(f)) continue;
+    try { freed += fs.statSync(f).size; await fs.promises.unlink(f); } catch (err) {}
+  }
+  return freed;
+});
 ipcMain.handle('library:trash', async (e, files) => {
   const dir = path.resolve(outDir()) + path.sep;
   for (const f of files) if (path.resolve(f).startsWith(dir) && fs.existsSync(f)) await shell.trashItem(f);

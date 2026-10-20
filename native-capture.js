@@ -51,14 +51,15 @@ function displayFor(displayId) {
   return { idx: Math.max(0, idx), bounds: d.bounds, scale: d.scaleFactor };
 }
 
-function encoderArgs(enc, fps) {
+// small = roughly half the file size, for long sessions.
+function encoderArgs(enc, fps, small) {
   const sys = WIN ? ['-vf', 'hwdownload,format=bgra'] : [];
   switch (enc) {
-    case 'h264_nvenc': return ['-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', '21', '-b:v', '0', '-maxrate', '60M', '-bufsize', '120M', '-bf', '0'];
-    case 'h264_amf': return ['-c:v', 'h264_amf', '-usage', 'transcoding', '-quality', 'balanced', '-rc', 'cqp', '-qp_i', '20', '-qp_p', '22'];
-    case 'h264_qsv': return ['-vf', 'hwmap=derive_device=qsv,format=qsv', '-c:v', 'h264_qsv', '-preset', 'faster', '-global_quality', '22'];
-    case 'h264_mf': return [...sys, '-pix_fmt', 'nv12', '-c:v', 'h264_mf', '-hw_encoding', '1', '-rate_control', 'quality', '-quality', '70', '-b:v', '30M'];
-    default: return [...sys, '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '20'];
+    case 'h264_nvenc': return ['-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', small ? '27' : '21', '-b:v', '0', '-maxrate', small ? '25M' : '60M', '-bufsize', small ? '50M' : '120M', '-bf', '0'];
+    case 'h264_amf': return ['-c:v', 'h264_amf', '-usage', 'transcoding', '-quality', 'balanced', '-rc', 'cqp', '-qp_i', small ? '25' : '20', '-qp_p', small ? '27' : '22'];
+    case 'h264_qsv': return ['-vf', 'hwmap=derive_device=qsv,format=qsv', '-c:v', 'h264_qsv', '-preset', 'faster', '-global_quality', small ? '27' : '22'];
+    case 'h264_mf': return [...sys, '-pix_fmt', 'nv12', '-c:v', 'h264_mf', '-hw_encoding', '1', '-rate_control', 'quality', '-quality', small ? '55' : '70', '-b:v', small ? '12M' : '30M'];
+    default: return [...sys, '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', small ? '26' : '20'];
   }
 }
 
@@ -70,13 +71,13 @@ function inputArgs(disp, fps) {
 
 // Starts ffmpeg and resolves once it is capturing. Falls through to the next
 // encoder if one fails to start.
-async function start({ displayId, fps, tempFile }) {
+async function start({ displayId, fps, tempFile, small }) {
   const info = await detect();
   if (!info.available) throw new Error('Native capture unavailable');
   const disp = displayFor(displayId);
   for (const enc of info.encoders) {
     if (failed.has(enc)) continue;
-    const args = ['-hide_banner', '-y', '-thread_queue_size', '512', ...inputArgs(disp, fps), ...encoderArgs(enc, fps),
+    const args = ['-hide_banner', '-y', '-thread_queue_size', '512', ...inputArgs(disp, fps), ...encoderArgs(enc, fps, small),
       '-g', String(fps * 2), '-an', '-movflags', '+frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', tempFile];
     const proc = spawn(ffmpegPath(), args, { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
     let log = '';

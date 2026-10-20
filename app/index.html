@@ -195,6 +195,11 @@ main{min-height:0;overflow:hidden}
 .lib-card .meta b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lib-card .acts{display:flex;gap:6px;flex-wrap:wrap;padding:8px 11px 11px}
 .lib-card.in-edit{border-color:var(--accent)}
+.lib-store{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.lib-disk{display:flex;gap:8px;align-items:center;min-width:260px;flex:1}.lib-disk .meter{flex:0 0 140px}
+.star{min-width:30px}.star[aria-pressed="true"]{color:var(--accent);border-color:var(--accent)}
+.quick-exp{display:grid;grid-template-columns:1fr 1fr;gap:8px}.quick-exp .btn{flex-direction:column;gap:2px;padding:10px 8px;white-space:normal;text-align:center}
+.quick-exp small{font-weight:400;font-size:11px;opacity:.8}
 .qr{width:240px;height:240px;align-self:center;background:#fff;border-radius:8px;padding:8px;image-rendering:pixelated}
 /* overlay + toast */
 .overlay{position:fixed;inset:0;background:rgba(5,8,12,.7);display:grid;place-items:center;z-index:50;padding:16px}
@@ -271,6 +276,8 @@ main{min-height:0;overflow:hidden}
       </div>
       <div class="row"><label for="fpsSel">Frame rate</label>
         <select id="fpsSel" data-bind="rec.fps"><option value="30">30 fps</option><option value="60">60 fps</option></select></div>
+      <div class="row"><label for="recQual">File size</label>
+        <select id="recQual" data-bind="rec.quality"><option value="high">Best quality</option><option value="small">Smaller files (about half)</option></select></div>
       <div class="meter-row"><span>Game + Discord</span><div class="meter"><i id="sysMeter"></i></div></div>
       <p id="encHint" class="hint" hidden></p>
       <p id="sysHint" class="hint">To capture game and Discord sound, share your entire screen and tick “Share system audio”.</p>
@@ -308,6 +315,13 @@ main{min-height:0;overflow:hidden}
   <div class="lib">
     <div class="lib-head"><h2>Your recordings</h2><span class="muted small" id="libInfo"></span><span class="spacer" style="flex:1"></span>
       <button class="btn small" id="libRefresh">Refresh</button><button class="btn small" id="libFolder">Open folder</button></div>
+    <div class="lib-store">
+      <div class="lib-disk"><div class="meter"><i id="diskBar"></i></div><span class="small muted" id="diskText"></span></div>
+      <label class="small muted" for="keepSel">Delete raw recordings after</label>
+      <select id="keepSel" data-bind="rec.keepDays" style="width:auto"><option value="1">1 day</option><option value="3">3 days</option><option value="7">7 days</option><option value="30">30 days</option><option value="0">Never</option></select>
+      <button class="btn small danger" id="libClean">Clean up now</button>
+    </div>
+    <p class="hint">Starred recordings, recordings in your current edit, and exported videos are never deleted automatically. Cleanup deletes for good (not the Recycle Bin) so the space comes back.</p>
     <div id="libTakes" class="lib-grid"></div>
     <div class="lib-head"><h2>Exported videos</h2></div>
     <div id="libExports" class="lib-grid"></div>
@@ -394,6 +408,13 @@ main{min-height:0;overflow:hidden}
       </div>
 
       <div class="pane" data-pane="export" hidden>
+        <div class="pane-h"><h3>One-click export</h3></div>
+        <div class="quick-exp">
+          <button class="btn primary" data-quick="vertical">TikTok · Reels · Shorts<small>Vertical 1080×1920</small></button>
+          <button class="btn" data-quick="wide">YouTube<small>Wide 1920×1080</small></button>
+        </div>
+        <p class="hint">Sets the shape and quality for you, exports, then shows a code to send it to your phone so you can post from the app.</p>
+        <div class="pane-h"><h3>Custom</h3></div>
         <div class="row"><label>Shape</label>
           <div class="seg-ctl" id="aspectCtl"><button data-aspect="16:9">16:9 YouTube</button><button data-aspect="9:16">9:16 Shorts</button><button data-aspect="1:1">1:1</button></div></div>
         <div class="row"><label>Framing</label>
@@ -489,7 +510,7 @@ const S = {
   cam: { show: true, cx: 0.86, cy: 0.79, size: 0.3, shape: 'circle', border: '#f0a73a', borderW: 0.007, mirror: true },
   out: { aspect: '16:9', fit: 'blur', panX: 0.5, quality: '1080', format: 'mp4', monitor: true },
   audio: { game: 1, voice: 1, musicVol: 0.3, music: null, denoise: true, gateLevel: -50, voiceComp: true, gameComp: false },  // music {name,duration,url}
-  rec: { fps: '60', countdown: true, openEditor: true },
+  rec: { fps: '60', quality: 'high', keepDays: '7', countdown: true, openEditor: true },
   sel: null,      // {type:'seg'|'text', id}
 };
 const segById = id => S.segments.find(s => s.id === id);
@@ -1044,7 +1065,7 @@ function recorderFor(stream, kind) {
   // H.264 first: Chromium hands it to the graphics card, where VP9 would load the CPU while you play.
   const mime = hasV ? pickMime(['video/webm;codecs=h264,opus', 'video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm']) : pickMime(['audio/webm;codecs=opus', 'audio/webm']);
   const opts = { mimeType: mime || undefined };
-  if (hasV) opts.videoBitsPerSecond = kind === 'main' ? (+S.rec.fps === 60 ? 16e6 : 10e6) : 3e6;
+  if (hasV) opts.videoBitsPerSecond = (kind === 'main' ? (+S.rec.fps === 60 ? 16e6 : 10e6) : 3e6) * (S.rec.quality === 'small' ? 0.5 : 1);
   opts.audioBitsPerSecond = 160000;
   const r = new MediaRecorder(stream, opts); r.chunks = []; r.kind = kind;
   r.ondataavailable = ev => {
@@ -1072,7 +1093,7 @@ async function startRec(opts = {}) {
   // Whole screens record through ffmpeg on the graphics card; Chromium then only records sound.
   R.native = null;
   if (DESK && R.screen && R.srcId?.startsWith('screen') && (await nativeInfo()).available) {
-    try { R.native = await DESK.nativeStart({ sourceId: R.srcId, fps: +S.rec.fps }); }
+    try { R.native = await DESK.nativeStart({ sourceId: R.srcId, fps: +S.rec.fps, small: S.rec.quality === 'small' }); }
     catch (e) { console.warn('Fast recorder could not start, using the built-in one', e); }
   }
   const voiceTracks = [...(R.cam ? R.cam.getVideoTracks() : []), ...(R.mic ? R.mic.getAudioTracks() : [])];
@@ -1473,7 +1494,7 @@ async function startExport() {
   rec.onstop = () => {
     const ex = P.exporting; P.exporting = null; AE.monitor.gain.value = 1; vs.getTracks().forEach(t => t.stop());
     $('#exportOverlay').hidden = true;
-    if (ex.cancelled) return toast('Export cancelled.');
+    if (ex.cancelled) { P.quickPhone = false; return toast('Export cancelled.'); }
     const blob = new Blob(chunks, { type: mime.split(';')[0] });
     const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
     addExport(blob, `promo-${S.out.aspect.replace(':', 'x')}-${stamp()}.${ext}`);
@@ -1494,6 +1515,7 @@ function addExport(blob, name) {
       btn.onclick = () => DESK.reveal(file); item.querySelector('div').appendChild(btn);
       const ph = document.createElement('button'); ph.className = 'btn small'; ph.textContent = 'Send to phone';
       ph.onclick = () => sendToPhone(file); item.querySelector('div').appendChild(ph);
+      if (P.quickPhone) { P.quickPhone = false; sendToPhone(file); }
       toast('Export saved to ' + file, 6000);
     });
     return;
@@ -1544,6 +1566,7 @@ document.addEventListener('input', e => {
   const [o, k] = el.dataset.bind.split('.');
   const cur = S[o][k];
   S[o][k] = el.type === 'checkbox' ? el.checked : typeof cur === 'number' ? +el.value : el.value;
+  if (o === 'rec' && k === 'keepDays') autoCleanup();
   if (o === 'audio') { applyVolumes(); syncMusic(false); if (k === 'denoise') syncBinds(); }
   if (k === 'size' && o === 'cam') syncBinds();
   saveProject();
@@ -1651,12 +1674,13 @@ async function renderLibrary() {
   if (!DESK) return;
   const lib = LIB.data = await DESK.libraryList();
   const total = lib.takes.reduce((a, t) => a + t.size, 0) + lib.exports.reduce((a, e) => a + e.size, 0);
+  renderDisk(total);
   $('#libInfo').textContent = `${lib.takes.length} recording${lib.takes.length === 1 ? '' : 's'} · ${lib.exports.length} export${lib.exports.length === 1 ? '' : 's'} · ${fmtSize(total)} in ${lib.dir}`;
   const btns = (more) => `${more}<button class="btn small" data-act="phone">Send to phone</button><button class="btn small" data-act="show">Show in folder</button><button class="btn small danger" data-act="del">Delete</button>`;
   $('#libTakes').innerHTML = lib.takes.length ? lib.takes.map(t => libCard({
     title: takeTitle(t.base), file: t.parts.screen, files: Object.values(t.parts),
     sub: [fmtSize(t.size), t.parts.cam && 'camera/mic', t.parts.game && 'game sound'].filter(Boolean).join(' · '),
-    acts: btns(`<button class="btn small primary" data-act="edit" data-base="${esc(t.base)}">Add to edit</button>`),
+    acts: btns(`<button class="btn small star" data-act="star" data-base="${esc(t.base)}" aria-pressed="${!!t.meta.starred}" title="Star to keep it from automatic cleanup">${t.meta.starred ? '★' : '☆'}</button><button class="btn small primary" data-act="edit" data-base="${esc(t.base)}">Add to edit</button>`),
   })).join('') : '<div class="empty-note">No recordings yet. Press Record (or F9) to make one.</div>';
   $('#libExports').innerHTML = lib.exports.length ? lib.exports.map(e => libCard({
     title: e.name, file: e.file, files: [e.file], sub: `${fmtSize(e.size)} · ${new Date(e.mtime).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`,
@@ -1665,6 +1689,27 @@ async function renderLibrary() {
   // Fill in thumbnails and lengths a few at a time, then redraw once.
   const todo = [...lib.takes.map(t => t.parts.screen), ...lib.exports.map(e => e.file)].filter(f => !LIB.thumbs.has(f));
   if (todo.length) { for (let i = 0; i < todo.length; i += 3) await Promise.all(todo.slice(i, i + 3).map(probeFile)); if (view === 'lib') renderLibrary(); }
+}
+async function renderDisk(used) {
+  const d = await DESK.storageInfo();
+  if (!d) { $('#diskText').textContent = `Promo Studio is using ${fmtSize(used)}`; return; }
+  const pct = 100 - d.free / d.total * 100;
+  $('#diskBar').style.width = pct.toFixed(1) + '%';
+  $('#diskText').textContent = `Promo Studio uses ${fmtSize(used)} · ${fmtSize(d.free)} free on this drive`;
+}
+// Raw takes that can go: not starred and not used in the current edit.
+const removable = lib => lib.takes.filter(t => !t.meta.starred && !inEdit(Object.values(t.parts)));
+async function purgeTakes(takes, why) {
+  if (!takes.length) return 0;
+  const freed = await DESK.libraryPurge(takes.flatMap(t => Object.values(t.parts)));
+  takes.forEach(t => LIB.thumbs.delete(t.parts.screen));
+  if (freed) toast(`${why}: deleted ${takes.length} recording${takes.length === 1 ? '' : 's'} and freed ${fmtSize(freed)}.`, 6000);
+  return freed;
+}
+async function autoCleanup() {
+  const days = +S.rec.keepDays; if (!DESK || !days) return;
+  const lib = await DESK.libraryList(); const cutoff = Date.now() - days * 864e5;
+  if (await purgeTakes(removable(lib).filter(t => t.mtime < cutoff), `Cleanup (older than ${days} day${days === 1 ? '' : 's'})`) && view === 'lib') renderLibrary();
 }
 async function addTakeFromLibrary(base) {
   const t = LIB.data.takes.find(x => x.base === base); if (!t) return;
@@ -1684,6 +1729,27 @@ async function sendToPhone(file) {
 }
 $('#phoneClose').onclick = () => { $('#phone').hidden = true; };
 $('#libRefresh').onclick = () => renderLibrary();
+// One-click exports for social sites: vertical for TikTok/Reels/Shorts, wide for YouTube.
+$$('[data-quick]').forEach(b => b.addEventListener('click', () => {
+  if (P.exporting) return;
+  pushHist();
+  if (b.dataset.quick === 'vertical') { S.out.aspect = '9:16'; if (S.out.fit === 'fit') S.out.fit = 'blur'; }
+  else { S.out.aspect = '16:9'; }
+  S.out.quality = '1080'; if (pickMime(mp4Types).length) S.out.format = 'mp4';
+  syncBinds(); saveProject();
+  P.quickPhone = !!DESK; startExport();
+}));
+$('#libClean').onclick = async () => {
+  const b = $('#libClean'); const list = removable(LIB.data || await DESK.libraryList());
+  if (!list.length) return toast('Nothing to clean up. Starred recordings and ones in your edit are kept.');
+  if (!b.dataset.confirm) {
+    const size = list.reduce((a, t) => a + t.size, 0);
+    b.dataset.confirm = '1'; b.textContent = `Delete ${list.length} recording${list.length === 1 ? '' : 's'} (${fmtSize(size)})?`;
+    setTimeout(() => { delete b.dataset.confirm; b.textContent = 'Clean up now'; }, 4000); return;
+  }
+  delete b.dataset.confirm; b.textContent = 'Clean up now';
+  await purgeTakes(list, 'Cleanup'); renderLibrary();
+};
 $('#libFolder').onclick = () => DESK.openFolder();
 $('#view-lib').addEventListener('click', async e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
@@ -1691,6 +1757,10 @@ $('#view-lib').addEventListener('click', async e => {
   const act = b.dataset.act;
   if (act === 'edit') addTakeFromLibrary(b.dataset.base);
   else if (act === 'phone') sendToPhone(file);
+  else if (act === 'star') {
+    const t = LIB.data.takes.find(x => x.base === b.dataset.base); const on = !t.meta.starred;
+    t.meta.starred = on; await DESK.libraryMeta(t.base, { starred: on }); b.setAttribute('aria-pressed', on); b.textContent = on ? '★' : '☆';
+  }
   else if (act === 'show') DESK.reveal(file);
   else if (act === 'del') {
     if (inEdit(files)) return toast('This recording is in your edit. Delete it from the Clips list in the editor first.', 5000);
@@ -1780,6 +1850,7 @@ $('#themeSel').addEventListener('change', e => setTheme(e.target.value));
   if (document.fonts?.load) document.fonts.load('700 40px "Chakra Petch"').catch(() => {});
   P.last = performance.now(); requestAnimationFrame(frame);
   window.__studio = { S, P, R, layout, total, seek, play, pause, startExport };
+  setTimeout(() => autoCleanup().catch(e => console.warn(e)), 5000);
 })();
 </script>
 </body>
