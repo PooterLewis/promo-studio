@@ -4,12 +4,14 @@ Every Kyrn short follows these rules unless Jack says otherwise for that edit.
 Text comes from `kyrn_text.py` (fonts in `fonts/`, all SIL Open Font License).
 
 ## Text style
-- The look is **alien**, not fantasy or mystical: strange, sleek letterforms rather than serifs or runes.
-- **No gradients.** Flat solid fills only, with a dark outline and a soft glow.
-- House style: **signal** (Jack picked it on Oct 20): Michroma for the logo and CTA, Krona One for captions. The halloween style is reserved for a Halloween event.
-- Colors are based on the game, with a slightly greener glow: night `#0a0d26` (outlines), core `#eafff9` (letters), aqua `#2af5e0` (glow), spore `#ff3fb8` (call to action). Use ember `#ff8a1f` and gold `#ffd45a` for the Halloween event only.
-- Three roles only: `title` (the KYRN logo, end card only), `caption` (gameplay text), `cta` (call to action).
-- All caps, at most 2 lines, about 5 words per line.
+Built on Kyrn's own UI style sheet (Kyrn repo `art/ui/style/sheet.png`) and the Prism skin palette.
+- **Flat color only.** No gradients, no glow, no blur, no colored outlines. Depth comes only from hard edges: a thin dark rim and a hard dark step down and right.
+- **The letters are the alien part:** every letter is cut like the game's icons, with a lit face (top left) and a shaded face meeting at a hard diagonal, like cut crystal or carved shell. In the prism look, titles get a thin aurora seam (teal, violet, green) along each cut.
+- Titles use wide capitals (Krona One, close to the game's Builder Extended) with a **Vael script line** underneath, like every title in the game.
+- Captions use Krona One in capitals with no seams, so they stay readable.
+- The call to action sits on the game's six-sided crystal-cut button: dark text on a solid plate, never colored text floating on footage.
+- Looks: **shell** (the game UI: bone `#efe7d6`/`#c2b496`, vein `#5fb5a7`, gold `#d4a24c`, abyss `#0f1c22`) and **prism** (glass `#f2f6fb`/`#b0c0d6`, aurora `#5fe0cc` `#a78bff` `#7cf0a0`, slate `#454a72`). Waiting on Jack's pick. The Halloween look comes later from the game's hollow palette (ember `#ff8c32`, violet).
+- Three roles only: `title` (the logo, end card only), `caption` (gameplay text), `cta` (call to action). All caps, at most 2 lines, about 5 words per line.
 
 ## Captions
 - At most 3 captions in 30 seconds: a hook, one mid-video line, and the CTA.
