@@ -323,7 +323,7 @@ main{min-height:0;overflow:hidden}
 <section id="view-lib" class="view" hidden>
   <div class="lib">
     <div class="lib-head"><h2>Your recordings</h2><span class="muted small" id="libInfo"></span><span class="spacer" style="flex:1"></span>
-      <button class="btn small" id="libRefresh">Refresh</button><button class="btn small" id="libFolder">Open folder</button></div>
+      <button class="btn small" id="libFromPhone" title="Send videos from your phone to this PC">Get from phone</button><button class="btn small" id="libRefresh">Refresh</button><button class="btn small" id="libFolder">Open folder</button></div>
     <div class="lib-store">
       <div class="lib-disk"><div class="meter"><i id="diskBar"></i></div><span class="small muted" id="diskText"></span></div>
       <label class="small muted" for="keepSel">Delete raw recordings after</label>
@@ -509,6 +509,17 @@ main{min-height:0;overflow:hidden}
       <button class="btn" id="askCancel">Close</button>
       <button class="btn" id="askOpen" hidden>Open Claude</button>
       <button class="btn primary" id="askSend">Copy request</button></div>
+  </div>
+</div>
+<div id="phoneIn" class="overlay" hidden>
+  <div class="ov-card" role="dialog" aria-labelledby="phoneInTitle">
+    <h3 id="phoneInTitle" style="margin:0">Get videos from your phone</h3>
+    <img id="phoneInQr" class="qr" alt="QR code">
+    <p class="hint">Make sure your phone is on the <b>same Wi-Fi</b> as this PC, then point your phone camera at the code and tap the link. Tap <b>Choose videos</b>, pick them from your Photos, and keep the page open until each one says Done.</p>
+    <p class="hint">Your phone will warn that the connection isn't private, because the link goes straight to this PC rather than a website. On iPhone tap <b>Show Details</b>, then <b>visit this website</b>. On Android tap <b>Advanced</b>, then <b>Proceed</b>.</p>
+    <p class="hint">Videos land in your Library under Exported videos, named "Phone …", where you can add them to an edit or send them to Claude. The link works for 30 minutes.</p>
+    <p class="hint">Or type this on your phone: <code id="phoneInUrl" style="user-select:all;word-break:break-all"></code></p>
+    <button class="btn" id="phoneInClose">Done</button>
   </div>
 </div>
 <div id="phone" class="overlay" hidden>
@@ -1848,6 +1859,12 @@ async function sendToPhone(file) {
   $('#phoneName').textContent = / - screen\.(mp4|webm)$/.test(name) ? `${name}. This is the screen video only; export from the editor to include your camera and sound.` : name; $('#phoneQr').src = r.qr; $('#phoneUrl').textContent = r.url; $('#phone').hidden = false;
 }
 $('#phoneClose').onclick = () => { $('#phone').hidden = true; };
+$('#libFromPhone').onclick = async () => {
+  const r = await DESK.receiveFromPhone();
+  if (!r || r.error) return toast(r?.error === 'no-network' ? "This PC isn't connected to a network, so your phone can't reach it." : "Couldn't start receiving.", 6000);
+  $('#phoneInQr').src = r.qr; $('#phoneInUrl').textContent = r.url; $('#phoneIn').hidden = false;
+};
+$('#phoneInClose').onclick = () => { $('#phoneIn').hidden = true; if (view === 'lib') renderLibrary(); };
 $('#libRefresh').onclick = async () => {
   const b = $('#libRefresh'); b.disabled = true; b.textContent = 'Refreshing…';
   try { LIB.thumbs.clear(); LIB.durs.clear(); await renderLibrary({ quick: true }); toast(`Library updated: ${LIB.data.takes.length} recordings, ${LIB.data.exports.length} exported videos.`); }

@@ -178,7 +178,7 @@ ipcMain.handle('library:meta', (e, base, info) => { const all = readMeta(); all[
 ipcMain.handle('library:list', async () => {
   const dir = outDir(), meta = readMeta(), takes = new Map(), exports = [];
   for (const name of await fs.promises.readdir(dir)) {
-    if (!/\.(mp4|webm)$/i.test(name) || /\.part\.mp4$|\.aac-tmp\.mp4$|\.shrink-tmp\.mp4$/i.test(name)) continue;
+    if (!/\.(mp4|webm)$/i.test(name) || /\.part\.mp4$|\.aac-tmp\.mp4$|\.shrink-tmp\.mp4$|\.upload-tmp\./i.test(name)) continue;
     const file = path.join(dir, name); let st; try { st = fs.statSync(file); } catch (e) { continue; }
     if (!st.isFile()) continue;
     const item = { name, file, size: st.size, mtime: st.mtimeMs };
@@ -243,6 +243,16 @@ ipcMain.handle('phone:share', (e, file) => {
   if (!path.resolve(file).startsWith(path.resolve(outDir()) + path.sep)) return { error: 'outside' };
   return phone.share(file, app.getPath('userData'));
 });
+ipcMain.handle('phone:receive', () => phone.receiveLink(outDir(), app.getPath('userData'), async (tmp, base, ext) => {
+  // .mov is copied into an .mp4 so the Library and editor can open it; if that fails the original is kept.
+  if (ext !== 'mp4') {
+    const out = uniquePath(base + '.mp4');
+    if (await native.remux(tmp, out)) { fs.rmSync(tmp, { force: true }); return out; }
+  }
+  const out = uniquePath(`${base}.${ext}`);
+  fs.renameSync(tmp, out);
+  return out;
+}));
 ipcMain.handle('file:reveal', (e, file) => { if (file && fs.existsSync(file)) shell.showItemInFolder(file); else shell.openPath(outDir()); });
 ipcMain.handle('folder:open', () => shell.openPath(outDir()));
 ipcMain.handle('file:exists', (e, file) => !!file && fs.existsSync(file));

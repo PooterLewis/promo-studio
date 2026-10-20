@@ -1,6 +1,7 @@
 'use strict';
 // "Send to phone": serves one video over the home Wi-Fi so a phone can scan a QR
-// code and save it. Each link has a random token and stops working after 30 minutes.
+// code and save it. "Get from phone" does the reverse: a page where the phone picks
+// videos and uploads them into the Promo Studio folder. Each link has a random token and stops working after 30 minutes.
 // It's HTTPS (with a self-signed certificate made on first use) because phones only
 // allow the share sheet, and so "Save Video" to Photos, on secure pages.
 const https = require('https');
@@ -11,7 +12,8 @@ const crypto = require('crypto');
 const QRCode = require('qrcode');
 const selfsigned = require('selfsigned');
 
-const shares = new Map(); // token -> { file, expires }
+const shares = new Map(); // token -> { file, expires } or { upload: { dir, done }, expires }
+const MAX_UPLOAD = 8 * 1024 ** 3;
 const TTL = 30 * 60 * 1000;
 let server = null, port = 0;
 
@@ -70,10 +72,79 @@ load();
 </script></body></html>`;
 }
 
+function uploadPage() {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Send to Promo Studio</title><style>
+body{margin:0;font:16px system-ui,-apple-system,sans-serif;background:#0e131a;color:#e8edf3;padding:16px}
+.b{display:block;width:100%;box-sizing:border-box;text-align:center;background:#f5a524;color:#1a1200;font:700 17px system-ui,-apple-system,sans-serif;padding:15px;border:0;border-radius:10px;margin:14px 0}
+p{color:#9aa7b5;line-height:1.45;font-size:14px}h1{font-size:18px}
+.row{background:#18212c;border-radius:10px;padding:10px 12px;margin:8px 0;font-size:14px;word-break:break-word}
+.bar{height:6px;background:#253141;border-radius:3px;margin-top:8px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#f5a524}
+.ok{color:#7cf0a0}.bad{color:#ff8a80}
+</style></head><body><h1>Send videos to Promo Studio</h1>
+<label class="b" for="pick">Choose videos</label>
+<input id="pick" type="file" accept="video/*" multiple hidden>
+<div id="list"></div>
+<p>Pick one or more videos from your Photos. They go into the Promo Studio folder on your PC, ready to edit or to send to Claude. Keep this page open until each one says Done.</p>
+<script>
+const list=document.getElementById('list');
+document.getElementById('pick').onchange=async e=>{
+  const files=[...e.target.files]; e.target.value='';
+  for(const f of files) await send(f);
+};
+function send(f){
+  return new Promise(done=>{
+    const row=document.createElement('div'); row.className='row';
+    row.innerHTML='<b></b> <span>Sending…</span><div class="bar"><i></i></div>';
+    row.querySelector('b').textContent=f.name; list.prepend(row);
+    const st=row.querySelector('span'), bar=row.querySelector('i');
+    const x=new XMLHttpRequest();
+    x.open('POST', location.pathname.replace('/u/','/up/')+'?name='+encodeURIComponent(f.name));
+    x.upload.onprogress=ev=>{ if(ev.lengthComputable){ const p=Math.floor(ev.loaded*100/ev.total); bar.style.width=p+'%'; st.textContent='Sending… '+p+'%'; } };
+    x.onload=()=>{ const ok=x.status===200; st.className=ok?'ok':'bad'; st.textContent=ok?'Done':(x.responseText||'Failed'); bar.style.width='100%'; done(); };
+    x.onerror=()=>{ st.className='bad'; st.textContent='Lost the connection to your PC. Check you are on the same Wi-Fi and try again.'; done(); };
+    x.send(f);
+  });
+}
+</script></body></html>`;
+}
+
+function receive(req, res, s, query) {
+  if (req.method !== 'POST') { res.writeHead(405); return res.end(); }
+  const size = +req.headers['content-length'] || 0;
+  if (size > MAX_UPLOAD) { res.writeHead(413, { 'Content-Type': 'text/plain' }); return res.end('That video is too big (over 8 GB).'); }
+  const raw = decodeURIComponent((/[?&]name=([^&]*)/.exec(query || '') || [])[1] || 'video.mov');
+  const ext = (/\.(mov|mp4|m4v|webm)$/i.exec(raw) || ['', 'mov'])[1].toLowerCase();
+  const stamp = new Date().toLocaleString('sv-SE').replace(/:/g, '.');
+  const base = `Phone ${stamp} - ${path.basename(raw).replace(/\.[^.]*$/, '')}`.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120);
+  const tmp = path.join(s.upload.dir, `${base}.upload-tmp.${ext}`);
+  const out = fs.createWriteStream(tmp);
+  let got = 0, failed = false;
+  const fail = (code, msg) => { if (failed) return; failed = true; out.destroy(); fs.rm(tmp, { force: true }, () => {}); if (!res.headersSent) { res.writeHead(code, { 'Content-Type': 'text/plain' }); res.end(msg); } };
+  req.on('data', c => { got += c.length; if (got > MAX_UPLOAD) { fail(413, 'That video is too big (over 8 GB).'); req.destroy(); } });
+  req.on('aborted', () => fail(400, 'The upload stopped part way.'));
+  out.on('error', e => fail(500, 'Could not save it on your PC: ' + e.message));
+  req.pipe(out);
+  out.on('finish', async () => {
+    if (failed) return;
+    try {
+      const file = await s.upload.done(tmp, base, ext);
+      res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end(path.basename(file));
+    } catch (e) { fail(500, 'Could not save it on your PC: ' + e.message); }
+  });
+}
+
 function handle(req, res) {
+  const u = /^\/(u|up)\/([a-f0-9]{32})(\?.*)?$/.exec(req.url);
+  if (u) {
+    const s = shares.get(u[2]);
+    if (!s || !s.upload || s.expires < Date.now()) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('This link has expired. Click Get from phone again on your PC.'); }
+    if (u[1] === 'u') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(uploadPage()); }
+    return receive(req, res, s, u[3]);
+  }
   const m = /^\/(t|f)\/([a-f0-9]{32})(?:\/[^?]*)?(\?.*)?$/.exec(req.url);
   const s = m && shares.get(m[2]);
-  if (!s || s.expires < Date.now() || !fs.existsSync(s.file)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('This link has expired. Click Send to phone again on your PC.'); }
+  if (!s || !s.file || s.expires < Date.now() || !fs.existsSync(s.file)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('This link has expired. Click Send to phone again on your PC.'); }
   const name = path.basename(s.file), size = fs.statSync(s.file).size;
   if (m[1] === 't') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(page(m[2], name, size)); }
   const type = /\.mp4$/i.test(name) ? 'video/mp4' : 'video/webm';
@@ -125,6 +196,19 @@ async function share(file, dataDir) {
   return { url, qr, ip };
 }
 
+// done(tmpFile, baseName, ext) moves the finished upload into place and returns its path.
+async function receiveLink(dir, dataDir, done) {
+  const ip = lanAddress();
+  if (!ip) return { error: 'no-network' };
+  await ensureServer(dataDir);
+  for (const [t, s] of shares) if (s.expires < Date.now()) shares.delete(t);
+  const token = crypto.randomBytes(16).toString('hex');
+  shares.set(token, { upload: { dir, done }, expires: Date.now() + TTL });
+  const url = `https://${ip}:${port}/u/${token}`;
+  const qr = await QRCode.toDataURL(url, { margin: 1, width: 320, errorCorrectionLevel: 'M' });
+  return { url, qr, ip };
+}
+
 function stop() { if (server) { server.close(); server = null; } shares.clear(); }
 
-module.exports = { share, stop };
+module.exports = { share, receiveLink, stop };

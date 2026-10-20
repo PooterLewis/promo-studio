@@ -152,9 +152,19 @@ async function shrink(input, output, { maxHeight = 1080 } = {}) {
   return false;
 }
 
+// Phone videos arrive as .mov (often HEVC). Copying them into .mp4 is instant and
+// lets the Library, the editor and Claude's tools all open them.
+async function remux(input, output) {
+  if (!ffmpegPath()) return false;
+  const ok = await run(['-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy', '-movflags', '+faststart', output], 10 * 60 * 1000);
+  if (ok && fs.existsSync(output) && fs.statSync(output).size > 0) return true;
+  try { fs.unlinkSync(output); } catch (e) {}
+  return false;
+}
+
 function stopAll() {
   for (const r of running.values()) { try { r.proc.stdin.write('q'); } catch (e) {} }
   for (const j of jobs) { try { j.kill(); } catch (e) {} }
 }
 
-module.exports = { detect, start, stop, stopAll, toAac, shrink };
+module.exports = { detect, start, stop, stopAll, toAac, shrink, remux };
