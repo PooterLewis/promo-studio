@@ -10,6 +10,7 @@ const fs = require('fs');
 const WIN = process.platform === 'win32';
 const ENCODERS = WIN ? ['h264_nvenc', 'h264_amf', 'h264_qsv', 'h264_mf', 'libx264'] : ['libx264'];
 const running = new Map();
+const jobs = new Set(); // one-off ffmpeg runs (probe, remux, shrink)
 let failed = new Set();
 let probe = null;
 
@@ -24,7 +25,8 @@ function ffmpegPath() {
 function run(args, timeout = 15000) {
   return new Promise(res => {
     const bin = ffmpegPath(); if (!bin) return res(false);
-    execFile(bin, args, { timeout, windowsHide: true }, err => res(!err));
+    const child = execFile(bin, args, { timeout, windowsHide: true }, err => { jobs.delete(child); res(!err); });
+    jobs.add(child);
   });
 }
 
@@ -150,6 +152,9 @@ async function shrink(input, output, { maxHeight = 1080 } = {}) {
   return false;
 }
 
-function stopAll() { for (const r of running.values()) { try { r.proc.stdin.write('q'); } catch (e) {} } }
+function stopAll() {
+  for (const r of running.values()) { try { r.proc.stdin.write('q'); } catch (e) {} }
+  for (const j of jobs) { try { j.kill(); } catch (e) {} }
+}
 
 module.exports = { detect, start, stop, stopAll, toAac, shrink };

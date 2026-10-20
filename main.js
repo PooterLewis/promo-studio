@@ -68,6 +68,19 @@ function setupHotkeys() {
   }
 }
 
+// After an update, put the desktop shortcut back if the installer removed it.
+function restoreShortcut() {
+  if (!app.isPackaged || process.platform !== 'win32') return;
+  const marker = path.join(app.getPath('userData'), 'last-version');
+  let last = ''; try { last = fs.readFileSync(marker, 'utf8').trim(); } catch (e) {}
+  if (last === app.getVersion()) return;
+  try { fs.writeFileSync(marker, app.getVersion()); } catch (e) {}
+  const link = path.join(app.getPath('desktop'), 'Promo Studio.lnk');
+  if (fs.existsSync(link)) return;
+  try { shell.writeShortcutLink(link, 'create', { target: process.execPath, appUserModelId: 'com.pooterlewis.promostudio', description: 'Promo Studio' }); }
+  catch (e) { console.error('shortcut', e); }
+}
+
 function setupUpdates() {
   if (!app.isPackaged) { ipcMain.handle('update:check', () => send('update', { state: 'dev' })); return; }
   let autoUpdater;
@@ -80,7 +93,13 @@ function setupUpdates() {
   autoUpdater.on('update-not-available', () => send('update', { state: 'none', version: app.getVersion() }));
   autoUpdater.on('error', e => { console.error('update error', e && e.message); send('update', { state: 'error' }); });
   // Silent install, then reopen the app on the new version.
-  ipcMain.handle('update:install', () => autoUpdater.quitAndInstall(true, true));
+  // Stop ffmpeg and the phone server first: a running ffmpeg.exe locks the install
+  // folder, which can make the installer give up halfway (and lose the shortcut).
+  ipcMain.handle('update:install', async () => {
+    native.stopAll(); phone.stop();
+    await new Promise(r => setTimeout(r, 800));
+    autoUpdater.quitAndInstall(true, true);
+  });
   ipcMain.handle('update:check', () => { send('update', { state: 'checking' }); return check(); });
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
   setTimeout(check, 4000);
@@ -216,7 +235,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   if (process.platform === 'win32') app.setAppUserModelId('com.pooterlewis.promostudio');
-  app.whenReady().then(() => { protocol.handle('media', serveMedia); setupCapture(); native.detect(); createWindow(); setupHotkeys(); setupUpdates(); });
+  app.whenReady().then(() => { protocol.handle('media', serveMedia); setupCapture(); native.detect(); createWindow(); setupHotkeys(); setupUpdates(); restoreShortcut(); });
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     for (const w of writers.values()) w.stream.end();
