@@ -14,7 +14,8 @@ Built on Kyrn's own UI style sheet (Kyrn repo `art/ui/style/sheet.png`) and the 
 - Three roles only: `title` (the logo, end card only), `caption` (gameplay text), `cta` (call to action). All caps, at most 2 lines, about 5 words per line.
 
 ## Captions
-- At most 3 captions in 30 seconds: a hook, one mid-video line, and the CTA.
+- Every shot gets a caption, and together the captions explain the strategy (Jack, Oct 20): claim crystal spots, siphons, buildings, walls, troops and beasts, counters, destroy the core to win. Take every fact from the game's docs (Kryn repo `docs/systems/`), never invent stats.
+- Show plenty of close-up fighting, not only zoomed-out base shots.
 - A caption must describe what is on screen at that moment: real numbers and unit names from the game UI (Shaper, Trooper, Skyray, Lasher, Mender), not generic hype.
 - Plain and factual, never a slogan. Jack called "62 UNITS. ONE ORDER." corny. Good: "A NEW RTS GAME", or a unit or building name.
 - Banned: trailer clichés such as "unleash chaos", "no mercy", "crush your enemies", "raise your army".
