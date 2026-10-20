@@ -10,7 +10,7 @@ Built on Kyrn's own UI style sheet (Kyrn repo `art/ui/style/sheet.png`) and the 
 - Titles use wide capitals (Krona One, close to the game's Builder Extended) with a **Vael script line** underneath, like every title in the game.
 - Captions use Krona One in capitals with no seams, so they stay readable.
 - The call to action sits on the game's six-sided crystal-cut button: dark text on a solid plate, never colored text floating on footage.
-- Looks: **shell** (the game UI: bone `#efe7d6`/`#c2b496`, vein `#5fb5a7`, gold `#d4a24c`, abyss `#0f1c22`) and **prism** (glass `#f2f6fb`/`#b0c0d6`, aurora `#5fe0cc` `#a78bff` `#7cf0a0`, slate `#454a72`). Waiting on Jack's pick. The Halloween look comes later from the game's hollow palette (ember `#ff8c32`, violet).
+- Looks: **shell** (the game UI: bone `#efe7d6`/`#c2b496`, vein `#5fb5a7`, gold `#d4a24c`, abyss `#0f1c22`) and **prism** (glass `#f2f6fb`/`#b0c0d6`, aurora `#5fe0cc` `#a78bff` `#7cf0a0`, slate `#454a72`). **Jack picked shell (Oct 20): it is the house look.** The Halloween look comes later from the game's hollow palette (ember `#ff8c32`, violet).
 - Three roles only: `title` (the logo, end card only), `caption` (gameplay text), `cta` (call to action). All caps, at most 2 lines, about 5 words per line.
 
 ## Captions
