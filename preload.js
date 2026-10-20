@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('studio', {
   libraryShrink: files => ipcRenderer.invoke('library:shrink', files),
   libraryTrash: files => ipcRenderer.invoke('library:trash', files),
   shareToPhone: file => ipcRenderer.invoke('phone:share', file),
+  claudeRequest: req => ipcRenderer.invoke('claude:request', req),
+  openClaude: () => ipcRenderer.invoke('claude:open'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   onHotkey: fn => ipcRenderer.on('hotkey', (e, action) => fn(action)),

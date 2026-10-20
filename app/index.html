@@ -207,6 +207,8 @@ main{min-height:0;overflow:hidden}
 .viewer-stage #viewerVid{width:100%;max-height:70vh;display:block}
 .viewer-stage #viewerCam{position:absolute;right:12px;bottom:56px;width:22%;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.6);pointer-events:none}
 .viewer-acts{display:flex;gap:8px;flex-wrap:wrap}
+.ask-chips{display:flex;gap:6px;flex-wrap:wrap}
+.btn.claude{border-color:var(--accent);color:var(--accent)}
 .qr{width:240px;height:240px;align-self:center;background:#fff;border-radius:8px;padding:8px;image-rendering:pixelated}
 /* overlay + toast */
 .overlay{position:fixed;inset:0;background:rgba(5,8,12,.7);display:grid;place-items:center;z-index:50;padding:16px}
@@ -488,6 +490,25 @@ main{min-height:0;overflow:hidden}
     <div class="pane-h"><h3 id="viewerTitle" style="margin:0"></h3><button class="btn small" id="viewerClose">Close</button></div>
     <div class="viewer-stage"><video id="viewerVid" controls playsinline></video><video id="viewerCam" muted playsinline hidden></video></div>
     <div class="viewer-acts" id="viewerActs"></div>
+  </div>
+</div>
+<div id="askClaude" class="overlay" hidden>
+  <div class="ov-card" role="dialog" aria-labelledby="askTitle" style="width:min(520px,100%)">
+    <h3 id="askTitle" style="margin:0">Send to Claude</h3>
+    <p class="hint" id="askWhat"></p>
+    <label class="small muted" for="askText">What should Claude make?</label>
+    <textarea id="askText" rows="4" placeholder="e.g. a 30 second TikTok of the best fights, with a Kyrn title at the start"></textarea>
+    <div class="ask-chips">
+      <button class="btn small" data-ask="A 30 second vertical TikTok/Shorts/Reels of the best moments, with captions">30s TikTok</button>
+      <button class="btn small" data-ask="A 60 second vertical highlight of the best fights, with captions">60s highlight</button>
+      <button class="btn small" data-ask="A 2-3 minute wide YouTube highlight with a title card">YouTube cut</button>
+      <button class="btn small" data-ask="A short trailer-style teaser for Kyrn with text callouts">Trailer</button>
+    </div>
+    <div id="askDone" class="hint" hidden><b>Copied.</b> Paste it (Ctrl+V) into the Promo Studio chat in the Claude app and send. Claude finds the video in your folder and puts the finished edit back there.</div>
+    <div class="picker-foot"><span class="spacer" style="flex:1"></span>
+      <button class="btn" id="askCancel">Close</button>
+      <button class="btn" id="askOpen" hidden>Open Claude</button>
+      <button class="btn primary" id="askSend">Copy request</button></div>
   </div>
 </div>
 <div id="phone" class="overlay" hidden>
@@ -1690,7 +1711,7 @@ async function renderLibrary() {
   const total = lib.takes.reduce((a, t) => a + t.size, 0) + lib.exports.reduce((a, e) => a + e.size, 0);
   renderDisk(total);
   $('#libInfo').textContent = `${lib.takes.length} recording${lib.takes.length === 1 ? '' : 's'} · ${lib.exports.length} export${lib.exports.length === 1 ? '' : 's'} · ${fmtSize(total)} in ${lib.dir}`;
-  const btns = (more) => `${more}<button class="btn small" data-act="phone">Send to phone</button><button class="btn small" data-act="show">Show in folder</button><button class="btn small danger" data-act="del">Delete</button>`;
+  const btns = (more) => `${more}<button class="btn small claude" data-act="claude">Send to Claude</button><button class="btn small" data-act="phone">Send to phone</button><button class="btn small" data-act="show">Show in folder</button><button class="btn small danger" data-act="del">Delete</button>`;
   $('#libTakes').innerHTML = lib.takes.length ? lib.takes.map(t => libCard({
     title: takeTitle(t.base), file: t.parts.screen, files: Object.values(t.parts),
     sub: [fmtSize(t.size), t.parts.cam && 'camera/mic', t.parts.game && 'game sound'].filter(Boolean).join(' · '),
@@ -1775,6 +1796,7 @@ function closeViewer() {
     const a = b.dataset.vact, file = b.dataset.file;
     if (a === 'edit') { closeViewer(); addTakeFromLibrary(b.dataset.base); }
     else if (a === 'phone') sendToPhone(file);
+    else if (a === 'claude') { const card = $$('#view-lib .lib-card').find(c => c.dataset.file === file); closeViewer(); if (card) askClaude(card); }
     else if (a === 'show') DESK.reveal(file);
   });
 }
@@ -1784,10 +1806,35 @@ function viewLibraryItem(card) {
   if (t) openViewer({
     title: takeTitle(t.base), main: t.parts.screen, cam: t.parts.cam, game: t.parts.game, off: t.meta.off || 0,
     camVideo: t.meta.hasCamVideo ?? true,
-    acts: btn('edit', 'Add to edit', `data-base="${esc(t.base)}"`) + btn('show', 'Show in folder'),
+    acts: btn('edit', 'Add to edit', `data-base="${esc(t.base)}"`) + btn('claude', 'Send to Claude') + btn('show', 'Show in folder'),
   });
-  else openViewer({ title: file.split(/[\\/]/).pop(), main: file, acts: btn('phone', 'Send to phone') + btn('show', 'Show in folder') });
+  else openViewer({ title: file.split(/[\\/]/).pop(), main: file, acts: btn('claude', 'Send to Claude') + btn('phone', 'Send to phone') + btn('show', 'Show in folder') });
 }
+// Send to Claude: no API key needed. Claude can already see the videos folder, so
+// the request just has to say which video and what to make.
+const ASK = {};
+function askClaude(card) {
+  const file = card.dataset.file; const files = JSON.parse(card.dataset.files);
+  const t = LIB.data.takes.find(x => x.parts.screen === file);
+  const name = t ? `recording from ${takeTitle(t.base)}` : `export "${file.split(/[\\/]/).pop()}"`;
+  const d = LIB.durs.get(file);
+  Object.assign(ASK, { name, file, files, base: t?.base || null, duration: d || null });
+  $('#askWhat').textContent = `Video: ${name}${d ? ` (${fmt(d).replace(/\.\d$/, '')} long)` : ''}`;
+  $('#askDone').hidden = true; $('#askOpen').hidden = true; $('#askSend').textContent = 'Copy request';
+  $('#askClaude').hidden = false; setTimeout(() => $('#askText').focus(), 0);
+}
+$$('[data-ask]').forEach(b => b.addEventListener('click', () => { const ta = $('#askText'); ta.value = b.dataset.ask; ta.focus(); }));
+$('#askCancel').onclick = () => { $('#askClaude').hidden = true; };
+$('#askOpen').onclick = () => DESK.openClaude();
+$('#askSend').onclick = async () => {
+  const want = $('#askText').value.trim();
+  if (!want) { $('#askText').focus(); return toast('Type what you want Claude to make, or pick one of the buttons.'); }
+  const fileName = ASK.file.split(/[\\/]/).pop();
+  const message = `Edit request for the ${ASK.name} (${ASK.base || fileName}): ${want}`;
+  await DESK.claudeRequest({ message, want, video: ASK.name, take: ASK.base, files: ASK.files, duration: ASK.duration });
+  $('#askDone').hidden = false; $('#askOpen').hidden = false; $('#askSend').textContent = 'Copy again';
+  toast('Request copied. Paste it into your Claude chat.');
+};
 async function sendToPhone(file) {
   const r = await DESK.shareToPhone(file);
   if (!r || r.error) return toast(r?.error === 'no-network' ? "This PC isn't connected to a network, so your phone can't reach it." : "Couldn't share that file.", 6000);
@@ -1825,6 +1872,7 @@ $('#view-lib').addEventListener('click', async e => {
   const act = b.dataset.act;
   if (act === 'edit') addTakeFromLibrary(b.dataset.base);
   else if (act === 'phone') sendToPhone(file);
+  else if (act === 'claude') askClaude(card);
   else if (act === 'shrink') {
     if (inEdit(files)) return toast('This recording is in your edit. Remove it from the edit first, then shrink it.', 5000);
     if (LIB.shrinking) return toast('Already shrinking a recording. One at a time.');

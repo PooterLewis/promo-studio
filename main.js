@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, desktopCapturer, session, ipcMain, globalShortcut, shell, nativeTheme, protocol } = require('electron');
+const { app, BrowserWindow, desktopCapturer, session, ipcMain, globalShortcut, shell, nativeTheme, protocol, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Readable } = require('stream');
@@ -219,6 +219,17 @@ ipcMain.handle('library:trash', async (e, files) => {
   for (const f of files) if (path.resolve(f).startsWith(dir) && fs.existsSync(f)) await shell.trashItem(f);
   return true;
 });
+// "Send to Claude": saves the request next to the videos (so Claude, which can see
+// this folder, has the details) and puts a ready-to-paste message on the clipboard.
+ipcMain.handle('claude:request', async (e, req) => {
+  const dir = path.join(outDir(), 'Claude requests'); fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toLocaleString('sv-SE').replace(/:/g, '.');
+  const file = path.join(dir, `Request ${stamp}.json`);
+  fs.writeFileSync(file, JSON.stringify({ ...req, createdAt: new Date().toISOString() }, null, 2));
+  clipboard.writeText(req.message);
+  return { file };
+});
+ipcMain.handle('claude:open', () => shell.openExternal('https://claude.ai/'));
 ipcMain.handle('phone:share', (e, file) => {
   if (!path.resolve(file).startsWith(path.resolve(outDir()) + path.sep)) return { error: 'outside' };
   return phone.share(file);
