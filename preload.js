@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('studio', {
   libraryMeta: (base, info) => ipcRenderer.invoke('library:meta', base, info),
   libraryPurge: files => ipcRenderer.invoke('library:purge', files),
   storageInfo: () => ipcRenderer.invoke('storage:info'),
+  libraryShrink: files => ipcRenderer.invoke('library:shrink', files),
   libraryTrash: files => ipcRenderer.invoke('library:trash', files),
   shareToPhone: file => ipcRenderer.invoke('phone:share', file),
   installUpdate: () => ipcRenderer.invoke('update:install'),

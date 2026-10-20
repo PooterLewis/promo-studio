@@ -129,6 +129,27 @@ async function toAac(file) {
   return false;
 }
 
+// Re-encodes a finished recording much smaller (H.264, lower bitrate) so long
+// sessions take a fraction of the space. Sound is copied as-is.
+async function shrink(input, output, { maxHeight = 1080 } = {}) {
+  const info = await detect(); if (!info.available) return false;
+  const q = {
+    h264_nvenc: ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '30', '-b:v', '0', '-maxrate', '10M', '-bufsize', '20M'],
+    h264_amf: ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', '28', '-qp_p', '30'],
+    h264_qsv: ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', '30'],
+    h264_mf: ['-c:v', 'h264_mf', '-rate_control', 'cbr', '-b:v', '6M'],
+    libx264: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27'],
+  };
+  for (const enc of info.encoders) {
+    const ok = await run(['-hide_banner', '-loglevel', 'error', '-y', '-i', input,
+      '-vf', `scale=-2:'min(${maxHeight},ih)'`, '-pix_fmt', enc === 'h264_mf' || enc === 'h264_qsv' ? 'nv12' : 'yuv420p', ...q[enc],
+      '-c:a', 'copy', '-movflags', '+faststart', output], 4 * 60 * 60 * 1000);
+    if (ok && fs.existsSync(output) && fs.statSync(output).size > 0) return true;
+    try { fs.unlinkSync(output); } catch (e) {}
+  }
+  return false;
+}
+
 function stopAll() { for (const r of running.values()) { try { r.proc.stdin.write('q'); } catch (e) {} } }
 
-module.exports = { detect, start, stop, stopAll, toAac };
+module.exports = { detect, start, stop, stopAll, toAac, shrink };

@@ -150,7 +150,7 @@ ipcMain.handle('library:meta', (e, base, info) => { const all = readMeta(); all[
 ipcMain.handle('library:list', async () => {
   const dir = outDir(), meta = readMeta(), takes = new Map(), exports = [];
   for (const name of await fs.promises.readdir(dir)) {
-    if (!/\.(mp4|webm)$/i.test(name) || /\.part\.mp4$|\.aac-tmp\.mp4$/i.test(name)) continue;
+    if (!/\.(mp4|webm)$/i.test(name) || /\.part\.mp4$|\.aac-tmp\.mp4$|\.shrink-tmp\.mp4$/i.test(name)) continue;
     const file = path.join(dir, name); let st; try { st = fs.statSync(file); } catch (e) { continue; }
     if (!st.isFile()) continue;
     const item = { name, file, size: st.size, mtime: st.mtimeMs };
@@ -177,6 +177,23 @@ ipcMain.handle('library:purge', async (e, files) => {
     try { freed += fs.statSync(f).size; await fs.promises.unlink(f); } catch (err) {}
   }
   return freed;
+});
+// Shrink: re-encode a take's screen and camera files smaller, then replace them.
+ipcMain.handle('library:shrink', async (e, files) => {
+  const dir = path.resolve(outDir()) + path.sep; let before = 0, after = 0; const out = {};
+  for (const f of files) {
+    if (!path.resolve(f).startsWith(dir) || !fs.existsSync(f) || !/ - (screen|camera)(?: \(\d+\))?\.(mp4|webm)$/i.test(f)) continue;
+    const isCam = / - camera/i.test(f);
+    const tmp = f.replace(/\.(mp4|webm)$/i, '.shrink-tmp.mp4');
+    const size = fs.statSync(f).size;
+    if (!(await native.shrink(f, tmp, { maxHeight: isCam ? 720 : 1080 }))) continue;
+    const newSize = fs.statSync(tmp).size;
+    if (newSize >= size * 0.9) { fs.unlinkSync(tmp); continue; } // already small, keep the original
+    const final = f.replace(/\.(mp4|webm)$/i, '.mp4');
+    await fs.promises.unlink(f); fs.renameSync(tmp, final);
+    before += size; after += newSize; out[f] = final;
+  }
+  return { before, after, renamed: out };
 });
 ipcMain.handle('library:trash', async (e, files) => {
   const dir = path.resolve(outDir()) + path.sep;

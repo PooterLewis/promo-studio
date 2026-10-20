@@ -200,6 +200,13 @@ main{min-height:0;overflow:hidden}
 .star{min-width:30px}.star[aria-pressed="true"]{color:var(--accent);border-color:var(--accent)}
 .quick-exp{display:grid;grid-template-columns:1fr 1fr;gap:8px}.quick-exp .btn{flex-direction:column;gap:2px;padding:10px 8px;white-space:normal;text-align:center}
 .quick-exp small{font-weight:400;font-size:11px;opacity:.8}
+.lib-card .th{cursor:pointer}.lib-card .th::after{content:'▶';position:absolute;inset:0;display:grid;place-items:center;font-size:34px;color:#fff;opacity:0;transition:opacity .15s;text-shadow:0 2px 12px rgba(0,0,0,.7)}
+.lib-card .th:hover::after{opacity:.9}
+.ov-card.viewer-card{width:min(1100px,100%)}
+.viewer-stage{position:relative;background:#000;border-radius:8px;overflow:hidden;display:grid;place-items:center}
+.viewer-stage #viewerVid{width:100%;max-height:70vh;display:block}
+.viewer-stage #viewerCam{position:absolute;right:12px;bottom:56px;width:22%;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.6);pointer-events:none}
+.viewer-acts{display:flex;gap:8px;flex-wrap:wrap}
 .qr{width:240px;height:240px;align-self:center;background:#fff;border-radius:8px;padding:8px;image-rendering:pixelated}
 /* overlay + toast */
 .overlay{position:fixed;inset:0;background:rgba(5,8,12,.7);display:grid;place-items:center;z-index:50;padding:16px}
@@ -474,6 +481,13 @@ main{min-height:0;overflow:hidden}
       <button class="btn" id="pickerCancel">Cancel</button>
       <button class="btn primary" id="pickerOk" disabled>Use this</button>
     </div>
+  </div>
+</div>
+<div id="viewer" class="overlay" hidden>
+  <div class="ov-card viewer-card" role="dialog" aria-labelledby="viewerTitle">
+    <div class="pane-h"><h3 id="viewerTitle" style="margin:0"></h3><button class="btn small" id="viewerClose">Close</button></div>
+    <div class="viewer-stage"><video id="viewerVid" controls playsinline></video><video id="viewerCam" muted playsinline hidden></video></div>
+    <div class="viewer-acts" id="viewerActs"></div>
   </div>
 </div>
 <div id="phone" class="overlay" hidden>
@@ -1680,7 +1694,7 @@ async function renderLibrary() {
   $('#libTakes').innerHTML = lib.takes.length ? lib.takes.map(t => libCard({
     title: takeTitle(t.base), file: t.parts.screen, files: Object.values(t.parts),
     sub: [fmtSize(t.size), t.parts.cam && 'camera/mic', t.parts.game && 'game sound'].filter(Boolean).join(' · '),
-    acts: btns(`<button class="btn small star" data-act="star" data-base="${esc(t.base)}" aria-pressed="${!!t.meta.starred}" title="Star to keep it from automatic cleanup">${t.meta.starred ? '★' : '☆'}</button><button class="btn small primary" data-act="edit" data-base="${esc(t.base)}">Add to edit</button>`),
+    acts: btns(`<button class="btn small star" data-act="star" data-base="${esc(t.base)}" aria-pressed="${!!t.meta.starred}" title="Star to keep it from automatic cleanup">${t.meta.starred ? '★' : '☆'}</button><button class="btn small primary" data-act="edit" data-base="${esc(t.base)}">Add to edit</button>${t.size > 300e6 ? `<button class="btn small" data-act="shrink" data-base="${esc(t.base)}" title="Re-save this recording much smaller. Takes a few minutes.">Shrink</button>` : ''}`),
   })).join('') : '<div class="empty-note">No recordings yet. Press Record (or F9) to make one.</div>';
   $('#libExports').innerHTML = lib.exports.length ? lib.exports.map(e => libCard({
     title: e.name, file: e.file, files: [e.file], sub: `${fmtSize(e.size)} · ${new Date(e.mtime).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`,
@@ -1721,6 +1735,59 @@ async function addTakeFromLibrary(base) {
   });
   setView('edit');
 }
+// Click a thumbnail to watch. Takes play the screen video with their game sound and
+// camera/mic in step, the same way the editor lines them up.
+const VW = { subs: [], off: 0 };
+function openViewer({ title, main, cam, game, off = 0, camVideo, acts }) {
+  closeViewer();
+  const v = $('#viewerVid'), cv = $('#viewerCam');
+  v.src = mediaUrl(main); VW.off = off; VW.subs = [];
+  if (game) { const a = new Audio(mediaUrl(game)); a.preload = 'auto'; VW.subs.push(a); }
+  if (cam) {
+    if (camVideo) { cv.src = mediaUrl(cam); cv.muted = false; cv.hidden = false; VW.subs.push(cv); }
+    else { const a = new Audio(mediaUrl(cam)); a.preload = 'auto'; VW.subs.push(a); }
+  }
+  $('#viewerTitle').textContent = title; $('#viewerActs').innerHTML = acts || '';
+  $('#viewer').hidden = false; v.play().catch(() => {});
+}
+function closeViewer() {
+  const v = $('#viewerVid'), cv = $('#viewerCam'); v.pause(); v.removeAttribute('src'); v.load();
+  VW.subs.forEach(s => { s.pause(); if (s !== cv) s.removeAttribute('src'); });
+  cv.pause(); cv.removeAttribute('src'); cv.hidden = true; VW.subs = []; $('#viewer').hidden = true;
+}
+{
+  const v = $('#viewerVid');
+  const sync = force => VW.subs.forEach(s => {
+    const t = Math.max(0, v.currentTime + VW.off);
+    if (force || Math.abs(s.currentTime - t) > 0.25) { try { s.currentTime = t; } catch (e) {} }
+  });
+  v.addEventListener('play', () => { sync(true); VW.subs.forEach(s => s.play().catch(() => {})); });
+  v.addEventListener('pause', () => VW.subs.forEach(s => s.pause()));
+  v.addEventListener('seeked', () => sync(true));
+  v.addEventListener('ratechange', () => VW.subs.forEach(s => s.playbackRate = v.playbackRate));
+  v.addEventListener('volumechange', () => VW.subs.forEach(s => { s.volume = v.volume; s.muted = v.muted; }));
+  v.addEventListener('timeupdate', () => sync(false));
+  $('#viewerClose').onclick = closeViewer;
+  $('#viewer').addEventListener('click', e => { if (e.target.id === 'viewer') closeViewer(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#viewer').hidden) closeViewer(); });
+  $('#viewerActs').addEventListener('click', e => {
+    const b = e.target.closest('button[data-vact]'); if (!b) return;
+    const a = b.dataset.vact, file = b.dataset.file;
+    if (a === 'edit') { closeViewer(); addTakeFromLibrary(b.dataset.base); }
+    else if (a === 'phone') sendToPhone(file);
+    else if (a === 'show') DESK.reveal(file);
+  });
+}
+function viewLibraryItem(card) {
+  const file = card.dataset.file; const t = LIB.data.takes.find(x => x.parts.screen === file);
+  const btn = (act, label, extra = '') => `<button class="btn small${act === 'edit' ? ' primary' : ''}" data-vact="${act}" data-file="${esc(file)}" ${extra}>${label}</button>`;
+  if (t) openViewer({
+    title: takeTitle(t.base), main: t.parts.screen, cam: t.parts.cam, game: t.parts.game, off: t.meta.off || 0,
+    camVideo: t.meta.hasCamVideo ?? true,
+    acts: btn('edit', 'Add to edit', `data-base="${esc(t.base)}"`) + btn('show', 'Show in folder'),
+  });
+  else openViewer({ title: file.split(/[\\/]/).pop(), main: file, acts: btn('phone', 'Send to phone') + btn('show', 'Show in folder') });
+}
 async function sendToPhone(file) {
   const r = await DESK.shareToPhone(file);
   if (!r || r.error) return toast(r?.error === 'no-network' ? "This PC isn't connected to a network, so your phone can't reach it." : "Couldn't share that file.", 6000);
@@ -1752,11 +1819,23 @@ $('#libClean').onclick = async () => {
 };
 $('#libFolder').onclick = () => DESK.openFolder();
 $('#view-lib').addEventListener('click', async e => {
+  const th = e.target.closest('.lib-card .th'); if (th) return viewLibraryItem(th.closest('.lib-card'));
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const card = b.closest('.lib-card'); const file = card.dataset.file; const files = JSON.parse(card.dataset.files);
   const act = b.dataset.act;
   if (act === 'edit') addTakeFromLibrary(b.dataset.base);
   else if (act === 'phone') sendToPhone(file);
+  else if (act === 'shrink') {
+    if (inEdit(files)) return toast('This recording is in your edit. Remove it from the edit first, then shrink it.', 5000);
+    if (LIB.shrinking) return toast('Already shrinking a recording. One at a time.');
+    LIB.shrinking = true; b.disabled = true; b.textContent = 'Shrinking…';
+    toast('Shrinking this recording. This can take a few minutes for long ones; you can keep using the app.', 6000);
+    try {
+      const r = await DESK.libraryShrink(files);
+      Object.keys(r.renamed).forEach(f => LIB.thumbs.delete(f));
+      toast(r.before ? `Shrunk from ${fmtSize(r.before)} to ${fmtSize(r.after)}.` : 'This recording is already about as small as it gets.', 6000);
+    } finally { LIB.shrinking = false; renderLibrary(); }
+  }
   else if (act === 'star') {
     const t = LIB.data.takes.find(x => x.base === b.dataset.base); const on = !t.meta.starred;
     t.meta.starred = on; await DESK.libraryMeta(t.base, { starred: on }); b.setAttribute('aria-pressed', on); b.textContent = on ? '★' : '☆';
