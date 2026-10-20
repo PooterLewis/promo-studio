@@ -6,7 +6,7 @@ Text comes from `kyrn_text.py` (fonts in `fonts/`, all SIL Open Font License).
 ## Text style
 - The look is **alien**, not fantasy or mystical: strange, sleek letterforms rather than serifs or runes.
 - **No gradients.** Flat solid fills only, with a dark outline and a soft glow.
-- Style: being chosen from signal, hive and glyph (Oct 20). Until Jack picks, use **signal**. The halloween style is reserved for a Halloween event.
+- House style: **signal** (Jack picked it on Oct 20): Michroma for the logo and CTA, Krona One for captions. The halloween style is reserved for a Halloween event.
 - Colors are based on the game, with a slightly greener glow: night `#0a0d26` (outlines), core `#eafff9` (letters), aqua `#2af5e0` (glow), spore `#ff3fb8` (call to action). Use ember `#ff8a1f` and gold `#ffd45a` for the Halloween event only.
 - Three roles only: `title` (the KYRN logo, end card only), `caption` (gameplay text), `cta` (call to action).
 - All caps, at most 2 lines, about 5 words per line.
