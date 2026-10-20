@@ -1,7 +1,7 @@
 {
   "name": "promo-studio",
   "productName": "Promo Studio",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Record your screen, camera and game audio, edit, and export promo videos.",
   "main": "main.js",
   "author": "PooterLewis",
@@ -13,7 +13,8 @@
     "release": "electron-builder --win --publish always"
   },
   "dependencies": {
-    "electron-updater": "6.8.9"
+    "electron-updater": "6.8.9",
+    "qrcode": "1.5.4"
   },
   "devDependencies": {
     "electron": "43.7.7",
@@ -26,6 +27,7 @@
       "main.js",
       "preload.js",
       "native-capture.js",
+      "phone-share.js",
       "app/**/*",
       "package.json"
     ],

@@ -183,6 +183,19 @@ main{min-height:0;overflow:hidden}
 .playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--rec);pointer-events:none;z-index:6;left:0}
 .playhead::before{content:"";position:absolute;top:0;left:-5px;border:6px solid transparent;border-top:8px solid var(--rec)}
 
+/* library */
+.lib{padding:18px 22px;overflow:auto;height:100%;display:flex;flex-direction:column;gap:14px}
+.lib-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.lib-head h2{margin:0;font:700 18px var(--f-display);letter-spacing:.03em}
+.lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.lib-card{border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden;display:flex;flex-direction:column}
+.lib-card .th{aspect-ratio:16/9;background:#000 center/contain no-repeat;position:relative}
+.lib-card .th em{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.7);color:#fff;font:500 11.5px var(--f-mono);font-style:normal;padding:1px 6px;border-radius:4px}
+.lib-card .meta{padding:9px 11px 4px;display:flex;flex-direction:column;gap:2px}
+.lib-card .meta b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lib-card .acts{display:flex;gap:6px;flex-wrap:wrap;padding:8px 11px 11px}
+.lib-card.in-edit{border-color:var(--accent)}
+.qr{width:240px;height:240px;align-self:center;background:#fff;border-radius:8px;padding:8px;image-rendering:pixelated}
 /* overlay + toast */
 .overlay{position:fixed;inset:0;background:rgba(5,8,12,.7);display:grid;place-items:center;z-index:50;padding:16px}
 .ov-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:22px;width:min(420px,100%);display:flex;flex-direction:column;gap:12px}
@@ -221,6 +234,7 @@ main{min-height:0;overflow:hidden}
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" data-view="rec" aria-selected="true" id="tabRec">Record</button>
     <button class="tab" role="tab" data-view="edit" aria-selected="false" id="tabEdit">Edit <span id="segCount" class="pill">0</span></button>
+    <button class="tab" role="tab" data-view="lib" aria-selected="false" id="tabLib" hidden>Library</button>
   </nav>
   <div class="top-right"><div id="updateBar" class="update-bar" hidden><span id="updateText"></span><button class="btn small primary" id="updateBtn" hidden>Restart to update</button></div><label class="sr-only" for="themeSel">Theme</label><select id="themeSel" class="theme-sel" title="Theme"><option value="dark">Dark mode</option><option value="light">Light mode</option><option value="system">Match Windows</option></select><button class="btn small" id="openFolder" hidden>Open videos folder</button><span id="saveState" class="muted small">Projects save in this browser</span><span id="appVer" class="small muted"></span><button class="btn small" id="checkUpd" hidden>Update</button></div>
 </header>
@@ -290,6 +304,15 @@ main{min-height:0;overflow:hidden}
 </section>
 
 <!-- ============ EDIT ============ -->
+<section id="view-lib" class="view" hidden>
+  <div class="lib">
+    <div class="lib-head"><h2>Your recordings</h2><span class="muted small" id="libInfo"></span><span class="spacer" style="flex:1"></span>
+      <button class="btn small" id="libRefresh">Refresh</button><button class="btn small" id="libFolder">Open folder</button></div>
+    <div id="libTakes" class="lib-grid"></div>
+    <div class="lib-head"><h2>Exported videos</h2></div>
+    <div id="libExports" class="lib-grid"></div>
+  </div>
+</section>
 <section id="view-edit" class="view edit" hidden>
   <div class="ed-top">
     <div class="ed-preview">
@@ -432,6 +455,16 @@ main{min-height:0;overflow:hidden}
     </div>
   </div>
 </div>
+<div id="phone" class="overlay" hidden>
+  <div class="ov-card" role="dialog" aria-labelledby="phoneTitle">
+    <h3 id="phoneTitle" style="margin:0">Send to phone</h3>
+    <p class="hint" id="phoneName"></p>
+    <img id="phoneQr" class="qr" alt="QR code">
+    <p class="hint">Make sure your phone is on the <b>same Wi-Fi</b> as this PC, then point your phone camera at the code and tap the link. If Windows asks about network access, allow it on <b>Private networks</b>.</p>
+    <p class="hint">Or type this on your phone: <code id="phoneUrl" style="user-select:all;word-break:break-all"></code></p>
+    <button class="btn" id="phoneClose">Done</button>
+  </div>
+</div>
 <div id="toast" class="toast" role="status" hidden></div>
 <div id="mediaPool" aria-hidden="true"></div>
 
@@ -500,7 +533,7 @@ function saveProject() {
   clearTimeout(saveT);
   saveT = setTimeout(async () => {
     const data = {
-      clips: S.clips.map(c => ({ id: c.id, name: c.name, files: c.files || null, duration: c.duration, hasCamVideo: c.hasCamVideo, hasVoice: c.hasVoice, hasGame: !!c.gameUrl, native: !!c.native, off: c.off || 0, thumb: c.thumb })),
+      clips: S.clips.map(c => ({ id: c.id, name: c.name, files: c.files || null, duration: c.duration, hasCamVideo: c.hasCamVideo, hasVoice: c.hasVoice, hasGame: !!c.gameUrl, native: !!c.native, paths: c.paths || null, off: c.off || 0, thumb: c.thumb })),
       segments: S.segments, texts: S.texts, cam: S.cam, out: S.out, rec: S.rec,
       audio: { game: S.audio.game, voice: S.audio.voice, musicVol: S.audio.musicVol, denoise: S.audio.denoise, gateLevel: S.audio.gateLevel, voiceComp: S.audio.voiceComp, gameComp: S.audio.gameComp, music: S.audio.music ? { name: S.audio.music.name, duration: S.audio.music.duration } : null },
     };
@@ -514,8 +547,18 @@ async function loadProject() {
   Object.assign(S.cam, data.cam || {}); Object.assign(S.out, data.out || {}); Object.assign(S.rec, data.rec || {});
   if (data.audio) { S.audio.game = data.audio.game ?? 1; S.audio.voice = data.audio.voice ?? 1; S.audio.musicVol = data.audio.musicVol ?? 0.3; for (const k of ['denoise', 'gateLevel', 'voiceComp', 'gameComp']) if (data.audio[k] != null) S.audio[k] = data.audio[k]; }
   for (const c of data.clips || []) {
-    const main = c.native ? null : await IDB.get('blobs', c.id + ':main');
-    if (!main && !(c.native && c.files?.[0])) continue;
+    if (c.native && !c.paths && c.files?.[0]) c.paths = { main: c.files[0] };
+    if (c.paths) {
+      // Takes played from the videos folder: skip any whose screen file was deleted.
+      if (DESK && !(await DESK.fileExists(c.paths.main))) continue;
+      const cam = !c.paths.cam && (c.hasVoice || c.hasCamVideo) ? await IDB.get('blobs', c.id + ':cam') : null;
+      const game = !c.paths.game && c.hasGame ? await IDB.get('blobs', c.id + ':game') : null;
+      S.clips.push({ ...c, url: mediaUrl(c.paths.main), camUrl: c.paths.cam ? mediaUrl(c.paths.cam) : cam ? URL.createObjectURL(cam) : null,
+        gameUrl: c.paths.game ? mediaUrl(c.paths.game) : game ? URL.createObjectURL(game) : null, blob: null, camBlob: cam, gameBlob: game });
+      continue;
+    }
+    const main = await IDB.get('blobs', c.id + ':main');
+    if (!main) continue;
     const cam = (c.hasVoice || c.hasCamVideo) ? await IDB.get('blobs', c.id + ':cam') : null;
     const game = c.hasGame ? await IDB.get('blobs', c.id + ':game') : null;
     S.clips.push({ ...c, url: main ? URL.createObjectURL(main) : mediaUrl(c.files[0]), camUrl: cam ? URL.createObjectURL(cam) : null, gameUrl: game ? URL.createObjectURL(game) : null,
@@ -1099,10 +1142,13 @@ async function stopRec() {
   if (split) { $('#pauseBtn').disabled = false; $('#pauseBtn').innerHTML = `Resume <span class="kbd">${HK.pause}</span>`; $('#stopBtn').disabled = false; $('#recBadge').hidden = false; $('#recBadge').classList.add('paused'); }
   const voice = got('voice'), main = got('main'), game = got('game');
   if (nat && !nativeFile) toast('The screen recording could not be saved. Your sound and camera were kept.', 6000);
+  const screenFile = nativeFile || main.file;
+  const paths = DESK && screenFile ? { main: screenFile, cam: voice.file || null, game: game.file || null } : null;
+  const take = { off: nat ? -R.vLag : 0, hasCamVideo: !!voice.blob && R.camVideo, hasVoice: !!voice.blob && R.withMic, duration: dur };
+  if (paths) DESK.libraryMeta(R.takeBase, take);
   await addClip({
-    main: main.blob, nativeFile, game: game.blob, cam: voice.blob, duration: dur, off: nat ? -R.vLag : 0,
-    hasCamVideo: !!voice.blob && R.camVideo, hasVoice: !!voice.blob && R.withMic,
-    files: [nativeFile || main.file, voice.file, game.file].filter(Boolean),
+    main: main.blob, game: game.blob, cam: voice.blob, paths, ...take,
+    files: [screenFile, voice.file, game.file].filter(Boolean),
     name: 'Take ' + (S.clips.filter(c => c.name.startsWith('Take')).length + 1),
   });
   if (split) return;
@@ -1111,12 +1157,17 @@ async function stopRec() {
 }
 
 // ---------------------------------------------------------------- clips
-async function addClip({ main, nativeFile, game, cam, off = 0, duration, hasCamVideo, hasVoice, name, files }) {
-  if (!main && !nativeFile) return;
+// paths = { main, cam, game } plays the take straight from the videos folder, so a long
+// recording isn't copied into app storage as well.
+async function addClip({ main, nativeFile, game, cam, paths, off = 0, duration, hasCamVideo, hasVoice, name, files }) {
+  if (nativeFile && !paths) paths = { main: nativeFile };
+  if (!main && !paths?.main) return;
+  if (paths) { main = null; if (paths.cam) cam = null; if (paths.game) game = null; }
   pushHist();
   const c = { id: uid(), name, files: files || null, duration: duration || 0, hasCamVideo: !!hasCamVideo, hasVoice: !!hasVoice, thumb: '', off,
-    native: !!nativeFile, url: nativeFile ? mediaUrl(nativeFile) : URL.createObjectURL(main), blob: main || null,
-    camUrl: cam ? URL.createObjectURL(cam) : null, camBlob: cam, gameUrl: game ? URL.createObjectURL(game) : null, gameBlob: game || null };
+    paths: paths || null, url: paths ? mediaUrl(paths.main) : URL.createObjectURL(main), blob: main || null,
+    camUrl: paths?.cam ? mediaUrl(paths.cam) : cam ? URL.createObjectURL(cam) : null, camBlob: cam || null,
+    gameUrl: paths?.game ? mediaUrl(paths.game) : game ? URL.createObjectURL(game) : null, gameBlob: game || null };
   clipEls(c);
   const real = await loadMeta(c.el);
   if (real > 0) c.duration = real;
@@ -1195,9 +1246,10 @@ function addText(kind) {
 
 // ---------------------------------------------------------------- rendering: panels
 function setView(v) {
-  view = v; $('#view-rec').hidden = v !== 'rec'; $('#view-edit').hidden = v !== 'edit';
-  $('#tabRec').setAttribute('aria-selected', v === 'rec'); $('#tabEdit').setAttribute('aria-selected', v === 'edit');
+  view = v; $('#view-rec').hidden = v !== 'rec'; $('#view-edit').hidden = v !== 'edit'; $('#view-lib').hidden = v !== 'lib';
+  $('#tabRec').setAttribute('aria-selected', v === 'rec'); $('#tabEdit').setAttribute('aria-selected', v === 'edit'); $('#tabLib').setAttribute('aria-selected', v === 'lib');
   if (v === 'edit') { renderAll(); seek(P.t); } else pause();
+  if (v === 'lib') renderLibrary();
 }
 function setPane(p) {
   $$('#ptabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.pane === p));
@@ -1440,6 +1492,8 @@ function addExport(blob, name) {
     blob.arrayBuffer().then(b => DESK.saveFile(name, b)).then(file => {
       const btn = document.createElement('button'); btn.className = 'btn small'; btn.textContent = 'Show in folder';
       btn.onclick = () => DESK.reveal(file); item.querySelector('div').appendChild(btn);
+      const ph = document.createElement('button'); ph.className = 'btn small'; ph.textContent = 'Send to phone';
+      ph.onclick = () => sendToPhone(file); item.querySelector('div').appendChild(ph);
       toast('Export saved to ' + file, 6000);
     });
     return;
@@ -1572,12 +1626,85 @@ async function saveClipFiles(c) {
   if (c.camBlob) files.push(await DESK.saveFile(`${c.name} - camera.webm`, await c.camBlob.arrayBuffer()));
   c.files = files; saveProject(); DESK.reveal(files[0]);
 }
+// ---------------------------------------------------------------- library
+const LIB = { thumbs: new Map(), durs: new Map() };
+const takeTitle = base => base.replace(/^Take (\d{4})-(\d\d)-(\d\d) (\d\d)\.(\d\d)(?:\.(\d\d))?$/, (m, y, mo, d, h, mi) =>
+  new Date(+y, +mo - 1, +d, +h, +mi).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }));
+function probeFile(file) {
+  if (LIB.thumbs.has(file)) return Promise.resolve();
+  LIB.thumbs.set(file, '');
+  return (async () => {
+    const v = mkVideo(mediaUrl(file)); v.muted = true;
+    const d = await loadMeta(v); v.remove(); LIB.durs.set(file, d);
+    LIB.thumbs.set(file, await grabThumb(mediaUrl(file), Math.min(2, d / 3 || 0)));
+  })();
+}
+const inEdit = files => S.clips.some(c => c.paths && Object.values(c.paths).some(p => p && files.includes(p)));
+function libCard({ title, sub, file, files, acts }) {
+  const d = LIB.durs.get(file); const used = inEdit(files);
+  return `<div class="lib-card${used ? ' in-edit' : ''}" data-files="${esc(JSON.stringify(files))}" data-file="${esc(file)}">
+    <div class="th" style="${LIB.thumbs.get(file) ? `background-image:url(${LIB.thumbs.get(file)})` : ''}">${d ? `<em>${fmt(d).replace(/\.\d$/, '')}</em>` : ''}</div>
+    <div class="meta"><b title="${esc(title)}">${esc(title)}</b><span class="small muted">${esc(sub)}${used ? ' · in your edit' : ''}</span></div>
+    <div class="acts">${acts}</div></div>`;
+}
+async function renderLibrary() {
+  if (!DESK) return;
+  const lib = LIB.data = await DESK.libraryList();
+  const total = lib.takes.reduce((a, t) => a + t.size, 0) + lib.exports.reduce((a, e) => a + e.size, 0);
+  $('#libInfo').textContent = `${lib.takes.length} recording${lib.takes.length === 1 ? '' : 's'} · ${lib.exports.length} export${lib.exports.length === 1 ? '' : 's'} · ${fmtSize(total)} in ${lib.dir}`;
+  const btns = (more) => `${more}<button class="btn small" data-act="phone">Send to phone</button><button class="btn small" data-act="show">Show in folder</button><button class="btn small danger" data-act="del">Delete</button>`;
+  $('#libTakes').innerHTML = lib.takes.length ? lib.takes.map(t => libCard({
+    title: takeTitle(t.base), file: t.parts.screen, files: Object.values(t.parts),
+    sub: [fmtSize(t.size), t.parts.cam && 'camera/mic', t.parts.game && 'game sound'].filter(Boolean).join(' · '),
+    acts: btns(`<button class="btn small primary" data-act="edit" data-base="${esc(t.base)}">Add to edit</button>`),
+  })).join('') : '<div class="empty-note">No recordings yet. Press Record (or F9) to make one.</div>';
+  $('#libExports').innerHTML = lib.exports.length ? lib.exports.map(e => libCard({
+    title: e.name, file: e.file, files: [e.file], sub: `${fmtSize(e.size)} · ${new Date(e.mtime).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`,
+    acts: btns(''),
+  })).join('') : '<div class="empty-note">Videos you export from the editor show up here.</div>';
+  // Fill in thumbnails and lengths a few at a time, then redraw once.
+  const todo = [...lib.takes.map(t => t.parts.screen), ...lib.exports.map(e => e.file)].filter(f => !LIB.thumbs.has(f));
+  if (todo.length) { for (let i = 0; i < todo.length; i += 3) await Promise.all(todo.slice(i, i + 3).map(probeFile)); if (view === 'lib') renderLibrary(); }
+}
+async function addTakeFromLibrary(base) {
+  const t = LIB.data.takes.find(x => x.base === base); if (!t) return;
+  const m = t.meta || {};
+  await addClip({
+    paths: { main: t.parts.screen, cam: t.parts.cam || null, game: t.parts.game || null }, off: m.off || 0,
+    hasCamVideo: m.hasCamVideo ?? !!t.parts.cam, hasVoice: m.hasVoice ?? !!t.parts.cam, duration: m.duration || 0,
+    files: Object.values(t.parts), name: takeTitle(base),
+  });
+  setView('edit');
+}
+async function sendToPhone(file) {
+  const r = await DESK.shareToPhone(file);
+  if (!r || r.error) return toast(r?.error === 'no-network' ? "This PC isn't connected to a network, so your phone can't reach it." : "Couldn't share that file.", 6000);
+  const name = file.split(/[\\/]/).pop();
+  $('#phoneName').textContent = / - screen\.(mp4|webm)$/.test(name) ? `${name}. This is the screen video only; export from the editor to include your camera and sound.` : name; $('#phoneQr').src = r.qr; $('#phoneUrl').textContent = r.url; $('#phone').hidden = false;
+}
+$('#phoneClose').onclick = () => { $('#phone').hidden = true; };
+$('#libRefresh').onclick = () => renderLibrary();
+$('#libFolder').onclick = () => DESK.openFolder();
+$('#view-lib').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const card = b.closest('.lib-card'); const file = card.dataset.file; const files = JSON.parse(card.dataset.files);
+  const act = b.dataset.act;
+  if (act === 'edit') addTakeFromLibrary(b.dataset.base);
+  else if (act === 'phone') sendToPhone(file);
+  else if (act === 'show') DESK.reveal(file);
+  else if (act === 'del') {
+    if (inEdit(files)) return toast('This recording is in your edit. Delete it from the Clips list in the editor first.', 5000);
+    if (!b.dataset.confirm) { b.dataset.confirm = '1'; b.textContent = 'Click again to delete'; setTimeout(() => { if (b.isConnected) { delete b.dataset.confirm; b.textContent = 'Delete'; } }, 3000); return; }
+    await DESK.libraryTrash(files); toast('Moved to the Recycle Bin.'); renderLibrary();
+  }
+});
 async function setupDesktop() {
   if (!DESK) return;
   const info = await DESK.info();
   Object.assign(HK, info.hotkeys);
   $('#appVer').textContent = 'v' + info.version;
   $('#openFolder').hidden = false; $('#openFolder').onclick = () => DESK.openFolder();
+  $('#tabLib').hidden = false;
   $('#saveState').hidden = true;
   $('#recBtn').innerHTML = `● Record <span class="kbd">${HK.record}</span>`;
   $('#pauseBtn').innerHTML = `Pause <span class="kbd">${HK.pause}</span>`;

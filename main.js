@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { Readable } = require('stream');
 const native = require('./native-capture');
+const phone = require('./phone-share');
 
 // media:// serves recorded files to the editor with range requests (for seeking)
 // and CORS headers, so frames can be drawn and exported like any other video.
@@ -134,9 +135,46 @@ function serveMedia(req) {
     status: 206, headers: { ...base, 'Content-Length': String(end - start + 1), 'Content-Range': `bytes ${start}-${end}/${size}` },
   });
 }
-ipcMain.handle('file:save', async (e, name, buf) => { const file = uniquePath(name); await fs.promises.writeFile(file, Buffer.from(buf)); return file; });
+ipcMain.handle('file:save', async (e, name, buf) => {
+  const file = uniquePath(name); await fs.promises.writeFile(file, Buffer.from(buf));
+  if (/\.mp4$/i.test(file)) await native.toAac(file);
+  return file;
+});
+
+// ---- Library: every take and export in the videos folder.
+// Extra facts about each take (sync offset, whether the camera file has video) live
+// in the app's own data folder so the videos folder only holds videos.
+const metaFile = () => path.join(app.getPath('userData'), 'takes.json');
+const readMeta = () => { try { return JSON.parse(fs.readFileSync(metaFile(), 'utf8')); } catch (e) { return {}; } };
+ipcMain.handle('library:meta', (e, base, info) => { const all = readMeta(); all[base] = { ...all[base], ...info }; fs.writeFileSync(metaFile(), JSON.stringify(all)); return true; });
+ipcMain.handle('library:list', async () => {
+  const dir = outDir(), meta = readMeta(), takes = new Map(), exports = [];
+  for (const name of await fs.promises.readdir(dir)) {
+    if (!/\.(mp4|webm)$/i.test(name) || /\.part\.mp4$|\.aac-tmp\.mp4$/i.test(name)) continue;
+    const file = path.join(dir, name); let st; try { st = fs.statSync(file); } catch (e) { continue; }
+    if (!st.isFile()) continue;
+    const item = { name, file, size: st.size, mtime: st.mtimeMs };
+    const m = /^(Take .+?) - (screen|camera|game sound)(?: \(\d+\))?\.(mp4|webm)$/.exec(name);
+    if (!m) { exports.push(item); continue; }
+    if (!takes.has(m[1])) takes.set(m[1], { base: m[1], parts: {}, size: 0, mtime: 0, meta: meta[m[1]] || {} });
+    const t = takes.get(m[1]); const kind = { screen: 'screen', camera: 'cam', 'game sound': 'game' }[m[2]];
+    t.parts[kind] = file; t.size += st.size; t.mtime = Math.max(t.mtime, st.mtimeMs);
+  }
+  return { dir, takes: [...takes.values()].filter(t => t.parts.screen).sort((a, b) => b.mtime - a.mtime), exports: exports.sort((a, b) => b.mtime - a.mtime) };
+});
+// Deleting moves files to the Recycle Bin, so a mistake can be undone there.
+ipcMain.handle('library:trash', async (e, files) => {
+  const dir = path.resolve(outDir()) + path.sep;
+  for (const f of files) if (path.resolve(f).startsWith(dir) && fs.existsSync(f)) await shell.trashItem(f);
+  return true;
+});
+ipcMain.handle('phone:share', (e, file) => {
+  if (!path.resolve(file).startsWith(path.resolve(outDir()) + path.sep)) return { error: 'outside' };
+  return phone.share(file);
+});
 ipcMain.handle('file:reveal', (e, file) => { if (file && fs.existsSync(file)) shell.showItemInFolder(file); else shell.openPath(outDir()); });
 ipcMain.handle('folder:open', () => shell.openPath(outDir()));
+ipcMain.handle('file:exists', (e, file) => !!file && fs.existsSync(file));
 // Keeps the Windows title bar in step with the app's theme.
 ipcMain.on('theme:set', (e, t) => { nativeTheme.themeSource = ['dark', 'light', 'system'].includes(t) ? t : 'system'; });
 // A red taskbar button shows recording is running while you're in the game.
@@ -151,6 +189,7 @@ else {
     globalShortcut.unregisterAll();
     for (const w of writers.values()) w.stream.end();
     native.stopAll();
+    phone.stop();
   });
   app.on('window-all-closed', () => app.quit());
 }

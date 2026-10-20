@@ -117,6 +117,17 @@ async function stop(id, finalFile) {
   try { fs.renameSync(r.tempFile, finalFile); return finalFile; } catch (e) { return r.tempFile; }
 }
 
+// Exports come out of Chromium with Opus sound, which iPhones and some social sites
+// reject. This swaps it for AAC (the picture is copied untouched).
+async function toAac(file) {
+  if (!ffmpegPath()) return false;
+  const tmp = file.replace(/\.mp4$/i, '') + '.aac-tmp.mp4';
+  const ok = await run(['-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', tmp], 10 * 60 * 1000);
+  if (ok && fs.existsSync(tmp) && fs.statSync(tmp).size > 0) { fs.renameSync(tmp, file); return true; }
+  try { fs.unlinkSync(tmp); } catch (e) {}
+  return false;
+}
+
 function stopAll() { for (const r of running.values()) { try { r.proc.stdin.write('q'); } catch (e) {} } }
 
-module.exports = { detect, start, stop, stopAll };
+module.exports = { detect, start, stop, stopAll, toAac };
