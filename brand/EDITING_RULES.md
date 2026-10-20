@@ -21,7 +21,7 @@ Built on Kyrn's own UI style sheet (Kyrn repo `art/ui/style/sheet.png`) and the 
 
 ## Branding
 - "KYRN" appears once, on the end card. No repeated tag on every shot.
-- CTA wording: **COMING SOON TO ROBLOX**, on the end card (optionally also over the last gameplay shot).
+- CTA wording: **AN RTS GAME · COMING SOON** (Jack, Oct 20; no "Roblox" tagline). It goes on the end card, and optionally over the last gameplay shot.
 
 ## Story and clip choice
 - 15 to 30 seconds, 6 to 10 shots, each 1.5 to 4 seconds.
