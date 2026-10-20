@@ -33,7 +33,7 @@ Built on Kyrn's own UI style sheet (Kyrn repo `art/ui/style/sheet.png`) and the 
 - If one recording doesn't have enough variety, use other takes and say so.
 
 ## Framing (1080x1920)
-- Gameplay fills y=360 to y=1740 at full 1080 width (Jack, Oct 20: moved down and made taller; crop 846x1080 scaled to 1080x1380) (never shrink it; Jack, Oct 20: "dont change the size of the video, just move the text"). Crop about half the width around the action, following where it is, with soft feathered edges.
+- Gameplay fills y=280 (just under the TikTok search bar) to y=1740 at full 1080 width (Jack, Oct 20; crop 800x1080 scaled to 1080x1460) (never shrink it; Jack, Oct 20: "dont change the size of the video, just move the text"). Crop about half the width around the action, following where it is, with soft feathered edges.
 - Only the text moves to clear the TikTok UI. Keep all text inside x=120 to 960 (at most 840px wide, centered on x=540) and y=240 to 1260; the top 240px (search bar), right 120px (like and comment buttons) and bottom 660px (caption, sound) get covered. Captions sit in the middle of the screen at y=750 (Jack, Oct 20); the opening and end card titles at y=780 to 800, with the line under them at y=1000.
 - Blurred, darkened gameplay fills the rest. No empty band at the top: the caption sits over the top seam.
 - Keep text out of the bottom 380px and top 150px (TikTok/Reels buttons).
