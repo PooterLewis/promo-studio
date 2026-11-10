@@ -11,6 +11,8 @@ const phone = require('./phone-share');
 protocol.registerSchemesAsPrivileged([{ scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }]);
 
 let win = null;
+let cutWin = null;
+const planWatch = new Map();
 let pick = { id: null, audio: true };
 const writers = new Map();
 const HOTKEYS = { record: 'F9', pause: 'F10' };
@@ -148,11 +150,12 @@ ipcMain.handle('native:start', async (e, { sourceId, fps, small }) => {
 });
 ipcMain.handle('native:stop', (e, id, name) => native.stop(id, uniquePath(name)));
 
+const MEDIA_TYPES = { '.mp4':'video/mp4', '.m4v':'video/mp4', '.mov':'video/mp4', '.webm':'video/webm', '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/mp4', '.aac':'audio/aac', '.ogg':'audio/ogg', '.flac':'audio/flac', '.json':'application/json', '.jpg':'image/jpeg', '.png':'image/png' };
 function serveMedia(req) {
   const file = path.resolve(new URL(req.url).searchParams.get('p') || '');
   if (!file.startsWith(path.resolve(outDir()) + path.sep) || !fs.existsSync(file)) return new Response('Not found', { status: 404 });
   const size = fs.statSync(file).size;
-  const type = /\.mp4$/i.test(file) ? 'video/mp4' : 'video/webm';
+  const type = MEDIA_TYPES[path.extname(file).toLowerCase()] || 'video/webm';
   const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*' };
   const m = /bytes=(\d*)-(\d*)/.exec(req.headers.get('range') || '');
   if (!m) return new Response(Readable.toWeb(fs.createReadStream(file)), { status: 200, headers: { ...base, 'Content-Length': String(size) } });
@@ -239,6 +242,65 @@ ipcMain.handle('claude:request', async (e, req) => {
   return { file };
 });
 ipcMain.handle('claude:open', () => shell.openExternal('https://claude.ai/'));
+
+// ---- Cutroom: the AI edit window. It plays a take (picture + game sound in sync),
+// asks Claude for an edit plan through the same copy-and-paste hand-off as "Send to
+// Claude", loads the plan.json Claude saves, and exports into the Library.
+const inOut = f => !!f && path.resolve(f).startsWith(path.resolve(outDir()) + path.sep);
+const requestsDir = () => path.join(outDir(), 'Claude requests');
+ipcMain.handle('cutroom:open', (e, info) => {
+  if (!info || !inOut(info.main) || (info.game && !inOut(info.game))) return { error: 'outside' };
+  const query = { main: info.main, game: info.game || '', off: String(Number(info.off) || 0), take: info.take || '', title: info.title || '', style: info.style || '' };
+  if (cutWin && !cutWin.isDestroyed()) {
+    cutWin.webContents.send('cutroom:load', query);
+    if (cutWin.isMinimized()) cutWin.restore(); cutWin.focus(); return { ok: true };
+  }
+  cutWin = new BrowserWindow({
+    width: 1500, height: 940, minWidth: 960, minHeight: 640, backgroundColor: '#0e1013', title: 'Cutroom · Promo Studio', autoHideMenuBar: true,
+    icon: path.join(__dirname, 'build', 'icon.png'),
+    // backgroundThrottling off: exports record in real time and must keep drawing if the window loses focus.
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  cutWin.loadFile(path.join(__dirname, 'app', 'cutroom.html'), { query });
+  cutWin.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  cutWin.on('closed', () => { cutWin = null; for (const t of planWatch.values()) clearInterval(t); planWatch.clear(); });
+  return { ok: true };
+});
+ipcMain.handle('cutroom:music', async () => {
+  const dir = path.join(outDir(), 'Music');
+  try {
+    return (await fs.promises.readdir(dir)).filter(n => /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(n)).sort()
+      .map(n => ({ name: n.replace(/\.[^.]+$/, ''), file: path.join(dir, n) }));
+  } catch (err) { return []; }
+});
+// Writes "Claude requests/Cutroom <time>/" with the full brief (prompt.md), the contact
+// sheets and request.json, then copies a short message that points Claude at the folder.
+ipcMain.handle('cutroom:request', async (e, { message, prompt, sheets, request }) => {
+  const stamp = new Date().toLocaleString('sv-SE').replace(/:/g, '.');
+  let dir = path.join(requestsDir(), `Cutroom ${stamp}`), n = 2;
+  while (fs.existsSync(dir)) dir = path.join(requestsDir(), `Cutroom ${stamp} (${n++})`);
+  fs.mkdirSync(dir, { recursive: true });
+  (sheets || []).forEach((buf, i) => fs.writeFileSync(path.join(dir, `sheet-${i + 1}.jpg`), Buffer.from(buf)));
+  fs.writeFileSync(path.join(dir, 'prompt.md'), String(prompt || ''));
+  fs.writeFileSync(path.join(dir, 'request.json'), JSON.stringify({ kind: 'cutroom', ...request, folder: dir, sheets: (sheets || []).map((_, i) => `sheet-${i + 1}.jpg`), createdAt: new Date().toISOString() }, null, 2));
+  const text = `${message}\nFolder: ${dir}\nRead prompt.md and the sheet images there (use the cutroom skill), then save the edit plan as plan.json in that folder. Cutroom in Promo Studio loads it by itself.`;
+  clipboard.writeText(text);
+  return { dir, text };
+});
+// Polls the request folder until plan.json appears and parses (a half-written file just
+// fails to parse and is read again on the next tick), then hands it to the Cutroom window.
+ipcMain.handle('cutroom:watch', (e, dir) => {
+  if (!dir || !path.resolve(dir).startsWith(path.resolve(requestsDir()) + path.sep)) return false;
+  const sender = e.sender, file = path.join(dir, 'plan.json'), started = Date.now();
+  const stop = () => { clearInterval(planWatch.get(dir)); planWatch.delete(dir); };
+  const tick = () => {
+    if (sender.isDestroyed() || Date.now() - started > 6 * 3600e3) return stop();
+    let plan; try { plan = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (err) { return; }
+    stop(); sender.send('cutroom:plan', { dir, plan });
+  };
+  stop(); planWatch.set(dir, setInterval(tick, 1500)); tick();
+  return true;
+});
 ipcMain.handle('phone:share', (e, file) => {
   if (!path.resolve(file).startsWith(path.resolve(outDir()) + path.sep)) return { error: 'outside' };
   return phone.share(file, app.getPath('userData'));

@@ -1723,7 +1723,7 @@ async function renderLibrary(opts = {}) {
   const total = lib.takes.reduce((a, t) => a + t.size, 0) + lib.exports.reduce((a, e) => a + e.size, 0);
   renderDisk(total);
   $('#libInfo').textContent = `${lib.takes.length} recording${lib.takes.length === 1 ? '' : 's'} · ${lib.exports.length} export${lib.exports.length === 1 ? '' : 's'} · ${fmtSize(total)} in ${lib.dir}`;
-  const btns = (more) => `${more}<button class="btn small claude" data-act="claude">Send to Claude</button><button class="btn small" data-act="phone">Send to phone</button><button class="btn small" data-act="show">Show in folder</button><button class="btn small danger" data-act="del">Delete</button>`;
+  const btns = (more) => `${more}<button class="btn small claude" data-act="cutroom" title="Open in Cutroom: Claude plans the edit, Cutroom renders it with 3D titles, transitions and captions">Cutroom</button><button class="btn small claude" data-act="claude">Send to Claude</button><button class="btn small" data-act="phone">Send to phone</button><button class="btn small" data-act="show">Show in folder</button><button class="btn small danger" data-act="del">Delete</button>`;
   $('#libTakes').innerHTML = lib.takes.length ? lib.takes.map(t => libCard({
     title: takeTitle(t.base), file: t.parts.screen, files: Object.values(t.parts),
     sub: [fmtSize(t.size), t.parts.cam && 'camera/mic', t.parts.game && 'game sound'].filter(Boolean).join(' · '),
@@ -1827,6 +1827,16 @@ function viewLibraryItem(card) {
   });
   else openViewer({ title: file.split(/[\\/]/).pop(), main: file, acts: btn('claude', 'Send to Claude') + btn('phone', 'Send to phone') + btn('show', 'Show in folder') });
 }
+// Cutroom: opens the take (picture plus its game sound, in sync) in the Cutroom window.
+async function openCutroom(file) {
+  if (!DESK?.cutroomOpen) return;
+  const lib = LIB.data || await DESK.libraryList();
+  const t = lib.takes.find(x => x.parts.screen === file);
+  const info = t ? { take: t.base, title: takeTitle(t.base), main: t.parts.screen, game: t.parts.game || '', off: t.meta.off || 0 }
+                 : { title: file.split(/[\\/]/).pop(), main: file };
+  const r = await DESK.cutroomOpen(info);
+  if (r?.error) toast('Cutroom can only open videos in your Promo Studio folder.');
+}
 // Send to Claude: no API key needed. Claude can already see the videos folder, so
 // the request just has to say which video and what to make.
 const ASK = {};
@@ -1903,6 +1913,7 @@ $('#view-lib').addEventListener('click', async e => {
   if (act === 'edit') addTakeFromLibrary(b.dataset.base);
   else if (act === 'phone') sendToPhone(file);
   else if (act === 'claude') askClaude(card);
+  else if (act === 'cutroom') openCutroom(file);
   else if (act === 'shrink') {
     if (inEdit(files)) return toast('This recording is in your edit. Remove it from the edit first, then shrink it.', 5000);
     if (LIB.shrinking) return toast('Already shrinking a recording. One at a time.');
