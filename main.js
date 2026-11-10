@@ -311,9 +311,11 @@ ipcMain.handle('cutroom:watch', (e, dir) => {
 });
 // Review frames of the plan as rendered: review.jpg (contact sheet) and review.json (frame
 // times, automatic checks). The skill reads them to critique and revise its own edit.
-ipcMain.handle('cutroom:review', async (e, dir, { jpeg, review }) => {
+// takes: contact sheets of extra takes a plan just pulled in (take-N.jpg), so Claude can see them.
+ipcMain.handle('cutroom:review', async (e, dir, { jpeg, review, takes }) => {
   if (!inRequests(dir) || !fs.existsSync(dir)) return false;
   await fs.promises.writeFile(path.join(dir, 'review.jpg'), Buffer.from(jpeg));
+  for (const t of takes || []) if (/^take-\d+\.jpg$/.test(t.name)) await fs.promises.writeFile(path.join(dir, t.name), Buffer.from(t.jpeg));
   await fs.promises.writeFile(path.join(dir, 'review.json'), JSON.stringify({ ...review, sheet: 'review.jpg', renderedAt: new Date().toISOString() }, null, 2));
   return true;
 });

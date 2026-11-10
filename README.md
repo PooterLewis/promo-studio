@@ -8,6 +8,7 @@ A Windows desktop app for recording gameplay promo videos: screen, camera, mic, 
 - **Takes** save to `Videos\Promo Studio` while you record, so a crash never loses one.
 - **Edit:** trim, split and reorder clips, add title cards, text and music, drag your camera anywhere.
 - **Cutroom:** press **✦ Cutroom** in the top bar (opens your newest recording) or **✦ Make a video** on any take in the Library. Pick a style (Kyrn ad follows the promo rules), music from `Videos\Promo Studio\Music` and a brief, then **Send to Claude**: paste the copied message into Claude Code, which saves a `plan.json` into the request folder, and Cutroom loads it by itself, renders review frames back into the folder, and Claude checks them and revises (usually 2 rounds). It renders 3D titles, transitions, captions and the gameplay frame, and exports MP4 to the Library.
+- **Several takes and hooks:** in Cutroom, **+ Add another take** (up to 4) lets Claude cut between recordings. Ask for hook variants in the brief ("3 hooks") and Claude writes 2-5 different openings on one shared body. Switch between them under the monitor; **Export N hook versions** saves one MP4 per hook (`Cutroom - <title> - <hook>.mp4`) for A/B posting.
 - **Export:** 16:9, 9:16 (Shorts/TikTok) or 1:1 as MP4 (H.264). Exports also save to `Videos\Promo Studio`.
 
 ## Updates
