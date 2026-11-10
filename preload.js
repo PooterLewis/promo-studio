@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('studio', {
   cutroomMusic: () => ipcRenderer.invoke('cutroom:music'),
   cutroomRequest: req => ipcRenderer.invoke('cutroom:request', req),
   cutroomWatch: dir => ipcRenderer.invoke('cutroom:watch', dir),
+  cutroomReview: (dir, data) => ipcRenderer.invoke('cutroom:review', dir, data),
   onCutroomPlan: fn => ipcRenderer.on('cutroom:plan', (e, p) => fn(p)),
   onCutroomLoad: fn => ipcRenderer.on('cutroom:load', (e, p) => fn(p)),
   installUpdate: () => ipcRenderer.invoke('update:install'),

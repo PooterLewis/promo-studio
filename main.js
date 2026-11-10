@@ -289,18 +289,32 @@ ipcMain.handle('cutroom:request', async (e, { message, prompt, sheets, request }
   clipboard.writeText(text);
   return { dir, text };
 });
-// Polls the request folder until plan.json appears and parses (a half-written file just
-// fails to parse and is read again on the next tick), then hands it to the Cutroom window.
+// Polls the request folder for plan.json and hands every new version to the Cutroom window
+// (a half-written file just fails to parse and is read again on the next tick). Each version
+// is a review round: Cutroom renders key frames back into the folder (cutroom:review), Claude
+// looks at them and may write plan.json again.
+const inRequests = dir => !!dir && path.resolve(dir).startsWith(path.resolve(requestsDir()) + path.sep);
 ipcMain.handle('cutroom:watch', (e, dir) => {
-  if (!dir || !path.resolve(dir).startsWith(path.resolve(requestsDir()) + path.sep)) return false;
+  if (!inRequests(dir)) return false;
   const sender = e.sender, file = path.join(dir, 'plan.json'), started = Date.now();
+  let seen = 0, round = 0;
   const stop = () => { clearInterval(planWatch.get(dir)); planWatch.delete(dir); };
   const tick = () => {
     if (sender.isDestroyed() || Date.now() - started > 6 * 3600e3) return stop();
+    let mtime; try { mtime = fs.statSync(file).mtimeMs; } catch (err) { return; }
+    if (mtime === seen) return;
     let plan; try { plan = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (err) { return; }
-    stop(); sender.send('cutroom:plan', { dir, plan });
+    seen = mtime; sender.send('cutroom:plan', { dir, plan, round: ++round });
   };
   stop(); planWatch.set(dir, setInterval(tick, 1500)); tick();
+  return true;
+});
+// Review frames of the plan as rendered: review.jpg (contact sheet) and review.json (frame
+// times, automatic checks). The skill reads them to critique and revise its own edit.
+ipcMain.handle('cutroom:review', async (e, dir, { jpeg, review }) => {
+  if (!inRequests(dir) || !fs.existsSync(dir)) return false;
+  await fs.promises.writeFile(path.join(dir, 'review.jpg'), Buffer.from(jpeg));
+  await fs.promises.writeFile(path.join(dir, 'review.json'), JSON.stringify({ ...review, sheet: 'review.jpg', renderedAt: new Date().toISOString() }, null, 2));
   return true;
 });
 ipcMain.handle('phone:share', (e, file) => {
