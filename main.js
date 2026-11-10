@@ -249,10 +249,12 @@ ipcMain.handle('claude:open', () => shell.openExternal('https://claude.ai/'));
 const inOut = f => !!f && path.resolve(f).startsWith(path.resolve(outDir()) + path.sep);
 const requestsDir = () => path.join(outDir(), 'Claude requests');
 ipcMain.handle('cutroom:open', (e, info) => {
-  if (!info || !inOut(info.main) || (info.game && !inOut(info.game))) return { error: 'outside' };
-  const query = { main: info.main, game: info.game || '', off: String(Number(info.off) || 0), take: info.take || '', title: info.title || '', style: info.style || '' };
+  info = info || {};
+  // No take: open Cutroom empty, so a video can be dropped into it.
+  if ((info.main && !inOut(info.main)) || (info.game && !inOut(info.game))) return { error: 'outside' };
+  const query = { main: info.main || '', game: info.game || '', off: String(Number(info.off) || 0), take: info.take || '', title: info.title || '', style: info.style || '' };
   if (cutWin && !cutWin.isDestroyed()) {
-    cutWin.webContents.send('cutroom:load', query);
+    if (query.main) cutWin.webContents.send('cutroom:load', query);
     if (cutWin.isMinimized()) cutWin.restore(); cutWin.focus(); return { ok: true };
   }
   cutWin = new BrowserWindow({

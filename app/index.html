@@ -209,6 +209,8 @@ main{min-height:0;overflow:hidden}
 .viewer-acts{display:flex;gap:8px;flex-wrap:wrap}
 .ask-chips{display:flex;gap:6px;flex-wrap:wrap}
 .btn.claude{border-color:var(--accent);color:var(--accent)}
+.tab.cut-tab{color:var(--accent)}
+.btn.cut{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700}
 .qr{width:240px;height:240px;align-self:center;background:#fff;border-radius:8px;padding:8px;image-rendering:pixelated}
 /* overlay + toast */
 .overlay{position:fixed;inset:0;background:rgba(5,8,12,.7);display:grid;place-items:center;z-index:50;padding:16px}
@@ -249,6 +251,7 @@ main{min-height:0;overflow:hidden}
     <button class="tab" role="tab" data-view="rec" aria-selected="true" id="tabRec">Record</button>
     <button class="tab" role="tab" data-view="edit" aria-selected="false" id="tabEdit">Edit <span id="segCount" class="pill">0</span></button>
     <button class="tab" role="tab" data-view="lib" aria-selected="false" id="tabLib" hidden>Library</button>
+    <button class="tab cut-tab" id="tabCut" hidden title="Cutroom: Claude edits your newest recording into a promo video (3D titles, captions, transitions)">✦ Cutroom</button>
   </nav>
   <div class="top-right"><div id="updateBar" class="update-bar" hidden><span id="updateText"></span><button class="btn small primary" id="updateBtn" hidden>Restart to update</button></div><label class="sr-only" for="themeSel">Theme</label><select id="themeSel" class="theme-sel" title="Theme"><option value="dark">Dark mode</option><option value="light">Light mode</option><option value="system">Match Windows</option></select><button class="btn small" id="openFolder" hidden>Open videos folder</button><span id="saveState" class="muted small">Projects save in this browser</span><span id="appVer" class="small muted"></span><button class="btn small" id="checkUpd" hidden>Update</button></div>
 </header>
@@ -1572,7 +1575,7 @@ function addExport(blob, name) {
 }
 
 // ---------------------------------------------------------------- wiring
-$$('.tab').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+$$('.tab').forEach(b => b.addEventListener('click', () => b.dataset.view ? setView(b.dataset.view) : openCutroom()));
 $$('#ptabs button').forEach(b => b.addEventListener('click', () => setPane(b.dataset.pane)));
 $('#pickScreen').addEventListener('click', pickScreen);
 $('#pickScreen2').addEventListener('click', pickScreen);
@@ -1723,7 +1726,7 @@ async function renderLibrary(opts = {}) {
   const total = lib.takes.reduce((a, t) => a + t.size, 0) + lib.exports.reduce((a, e) => a + e.size, 0);
   renderDisk(total);
   $('#libInfo').textContent = `${lib.takes.length} recording${lib.takes.length === 1 ? '' : 's'} · ${lib.exports.length} export${lib.exports.length === 1 ? '' : 's'} · ${fmtSize(total)} in ${lib.dir}`;
-  const btns = (more) => `${more}<button class="btn small claude" data-act="cutroom" title="Open in Cutroom: Claude plans the edit, Cutroom renders it with 3D titles, transitions and captions">Cutroom</button><button class="btn small claude" data-act="claude">Send to Claude</button><button class="btn small" data-act="phone">Send to phone</button><button class="btn small" data-act="show">Show in folder</button><button class="btn small danger" data-act="del">Delete</button>`;
+  const btns = (more) => `<button class="btn small cut" data-act="cutroom" title="Open in Cutroom: Claude plans the edit, Cutroom renders it with 3D titles, transitions and captions">✦ Make a video</button>${more}<button class="btn small claude" data-act="claude">Send to Claude</button><button class="btn small" data-act="phone">Send to phone</button><button class="btn small" data-act="show">Show in folder</button><button class="btn small danger" data-act="del">Delete</button>`;
   $('#libTakes').innerHTML = lib.takes.length ? lib.takes.map(t => libCard({
     title: takeTitle(t.base), file: t.parts.screen, files: Object.values(t.parts),
     sub: [fmtSize(t.size), t.parts.cam && 'camera/mic', t.parts.game && 'game sound'].filter(Boolean).join(' · '),
@@ -1828,9 +1831,14 @@ function viewLibraryItem(card) {
   else openViewer({ title: file.split(/[\\/]/).pop(), main: file, acts: btn('claude', 'Send to Claude') + btn('phone', 'Send to phone') + btn('show', 'Show in folder') });
 }
 // Cutroom: opens the take (picture plus its game sound, in sync) in the Cutroom window.
+// With no file (the top-bar Cutroom tab) it opens the newest recording, or an empty Cutroom.
 async function openCutroom(file) {
   if (!DESK?.cutroomOpen) return;
   const lib = LIB.data || await DESK.libraryList();
+  if (!file) {
+    if (!lib.takes.length) return DESK.cutroomOpen({});
+    file = lib.takes[0].parts.screen;
+  }
   const t = lib.takes.find(x => x.parts.screen === file);
   const info = t ? { take: t.base, title: takeTitle(t.base), main: t.parts.screen, game: t.parts.game || '', off: t.meta.off || 0 }
                  : { title: file.split(/[\\/]/).pop(), main: file };
@@ -1943,6 +1951,7 @@ async function setupDesktop() {
   $('#appVer').textContent = 'v' + info.version;
   $('#openFolder').hidden = false; $('#openFolder').onclick = () => DESK.openFolder();
   $('#tabLib').hidden = false;
+  $('#tabCut').hidden = !DESK.cutroomOpen;
   $('#saveState').hidden = true;
   $('#recBtn').innerHTML = `● Record <span class="kbd">${HK.record}</span>`;
   $('#pauseBtn').innerHTML = `Pause <span class="kbd">${HK.pause}</span>`;
