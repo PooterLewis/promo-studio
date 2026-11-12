@@ -18,6 +18,7 @@ const writers = new Map();
 const HOTKEYS = { record: 'F9', pause: 'F10' };
 const hotkeyStatus = {};
 
+const starterSounds = path.join(__dirname, 'app', 'sounds');
 const outDir = () => {
   const dir = path.join(app.getPath('videos'), 'Promo Studio');
   fs.mkdirSync(dir, { recursive: true });
@@ -153,7 +154,8 @@ ipcMain.handle('native:stop', (e, id, name) => native.stop(id, uniquePath(name))
 const MEDIA_TYPES = { '.mp4':'video/mp4', '.m4v':'video/mp4', '.mov':'video/mp4', '.webm':'video/webm', '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/mp4', '.aac':'audio/aac', '.ogg':'audio/ogg', '.flac':'audio/flac', '.json':'application/json', '.jpg':'image/jpeg', '.png':'image/png' };
 function serveMedia(req) {
   const file = path.resolve(new URL(req.url).searchParams.get('p') || '');
-  if (!file.startsWith(path.resolve(outDir()) + path.sep) || !fs.existsSync(file)) return new Response('Not found', { status: 404 });
+  const allowed = [outDir(), starterSounds].some(root => file.startsWith(path.resolve(root) + path.sep));
+  if (!allowed || !fs.existsSync(file)) return new Response('Not found', { status: 404 });
   const size = fs.statSync(file).size;
   const type = MEDIA_TYPES[path.extname(file).toLowerCase()] || 'video/webm';
   const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*' };
@@ -268,6 +270,48 @@ ipcMain.handle('cutroom:open', (e, info) => {
   cutWin.on('closed', () => { cutWin = null; for (const t of planWatch.values()) clearInterval(t); planWatch.clear(); });
   return { ok: true };
 });
+// ---- Sound effects for Cutroom: the starter set in app/sounds (CC0, see CREDITS.md) plus
+// anything in Videos\Promo Studio\Sounds, subfolders included, so a whole downloaded library
+// (Sonniss, Kenney, your own) can be dropped in as is. Cutroom sorts them by name.
+const soundsDir = () => path.join(outDir(), 'Sounds');
+const SOUND_EXT = /\.(wav|mp3|ogg|flac|m4a|aac)$/i;
+const SOUNDS_README = `Put sound effects here and Cutroom (and Claude) will use them.
+
+Any folder layout works: drop in a whole sound library with its subfolders.
+Cutroom sorts each file by its name or folder name into whoosh, impact, boom,
+riser, reverse, glitch and click, so names like "Whoosh Heavy 03.wav" or a
+folder called "Impacts" are all it needs. Files: wav, mp3, ogg, flac, m4a.
+
+Good free libraries: the Sonniss GDC bundles (royalty-free, sonniss.com/gameaudiogdc)
+and the Kenney audio packs (CC0, kenney.nl/assets/category:Audio).
+`;
+ipcMain.handle('cutroom:sounds', async () => {
+  const dir = soundsDir(), out = [];
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const readme = path.join(dir, 'Put sound effects here.txt');
+    if (!fs.existsSync(readme)) fs.writeFileSync(readme, SOUNDS_README);
+  } catch (err) {}
+  try {
+    for (const n of fs.readdirSync(starterSounds).sort()) {
+      if (!SOUND_EXT.test(n)) continue;
+      const m = /^(\w+) - (.+)\.\w+$/.exec(n);
+      out.push({ name: m ? m[2] : n.replace(/\.[^.]+$/, ''), cat: m ? m[1] : '', file: path.join(starterSounds, n), pack: 'starter' });
+    }
+  } catch (err) {}
+  const walk = async (d, depth) => {
+    if (depth > 6 || out.length > 5000) return;
+    let ents; try { ents = await fs.promises.readdir(d, { withFileTypes: true }); } catch (err) { return; }
+    for (const e of ents.sort((a, b) => a.name.localeCompare(b.name))) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) await walk(f, depth + 1);
+      else if (SOUND_EXT.test(e.name)) out.push({ name: e.name.replace(/\.[^.]+$/, ''), rel: path.relative(dir, f), file: f, pack: 'yours' });
+    }
+  };
+  await walk(dir, 0);
+  return { dir, sounds: out };
+});
+ipcMain.handle('cutroom:openSounds', () => { fs.mkdirSync(soundsDir(), { recursive: true }); return shell.openPath(soundsDir()); });
 ipcMain.handle('cutroom:music', async () => {
   const dir = path.join(outDir(), 'Music');
   try {

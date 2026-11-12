@@ -39,6 +39,8 @@ label.cap,.cap{font:600 11px/1.2 var(--f-mono);letter-spacing:.1em;text-transfor
 .drop small{color:var(--muted)}
 .drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .drop.small{padding:10px}
+.sfxinfo{font-size:13px;line-height:1.4}.sfxinfo small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+#btnSounds{margin-top:6px;padding:6px 10px;font-size:12px}
 .drop.small strong{font-size:13px}
 .srcmeta{font:12px/1.4 var(--f-mono);color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 12px}
 .srcmeta span b{color:var(--fg);font-weight:600}
@@ -135,6 +137,11 @@ canvas#tl{display:block;width:100%;height:150px;cursor:pointer;touch-action:none
         <span class="cap">Music <span style="text-transform:none;letter-spacing:0">(optional)</span></span>
         <select id="musicPick" hidden aria-label="Music from your Promo Studio Music folder"><option value="">No music</option></select>
         <div class="drop small" id="dropMusic"><input type="file" id="fileMusic" accept="audio/*,video/*"><strong id="musicLabel">Add a track to cut on the beat</strong></div>
+      </div>
+      <div class="field">
+        <span class="cap">Sound effects</span>
+        <div class="sfxinfo" id="sfxInfo"><strong>Loading sounds…</strong></div>
+        <button class="btn ghost small" id="btnSounds" hidden>Open Sounds folder</button>
       </div>
       <div class="field">
         <label class="cap" for="brief">What should it be?</label>
@@ -268,7 +275,14 @@ const LENGTHS = { auto:'Auto', '15':'15s', '30':'30s', '60':'60s', full:'Full' }
 const CAMERAS = ['static','push','pull','crash','punch','pan-left','pan-right','handheld','shake','dutch','drift','float3d','orbit3d','tilt3d','flip3d','dolly3d'];
 const TRANSITIONS = ['cut','crossfade','flash','whip','zoom','glitch','spin','dip','wipe','push','filmburn'];
 const FX = ['glitch','chroma','vhs','flash','bw','zoomblur','strobe'];
-const SFX = ['none','whoosh','impact','riser','boom','click'];
+const SFX = ['none','whoosh','impact','boom','riser','reverse','glitch','click'];
+// Recorded sound effects: the starter set that ships with Cutroom plus the user's own Sounds
+// folder. A plan names a type (Cutroom picks and varies the sound) or one sound by its name.
+const SFX_RULES = [['reverse', /revers|rvrs|backward/], ['riser', /riser|\brise|uplift|build.?up|tension|swell|sweep.?up/], ['glitch', /glitch|stutter|digital|static|corrupt|bitcrush/],
+  ['boom', /boom|bra+m|bass.?drop|sub.?drop|\bsub\b|explo|rumble|thunder|\bdrop\b/], ['whoosh', /wh?oo?sh|swoosh|swish|swipe|pass.?by|fly.?by|swing|\bwhip|transition/],
+  ['impact', /impact|\bhit|punch|slam|thud|smash|stinger|knock|crash|bang/], ['click', /click|tick|\bui\b|button|\bpop|blip|\btap\b|beep/]];
+const sfxCat = v => { v = String(v || '').toLowerCase().replace(/[_-]+/g, ' '); for (const [c, re] of SFX_RULES) if (re.test(v)) return c; return null; };
+const SB = { list: [], byName: new Map(), cache: new Map(), dir: null };
 const TEXT_STYLES = ['impact','caption','kinetic','minimal','neon','typewriter','lowerThird','glitch','chapter','marker','plate'];
 const POSITIONS = ['top','upper','center','lower','bottom'];
 const PARTICLES = ['dust','embers','snow','sparks','confetti','bokeh'];
@@ -481,8 +495,14 @@ function normalizePlan(p){
       focusX: num(s.focusX, .5, 0, 1), focusY: num(s.focusY, .5, 0, 1), fit: s.fit === 'fit' ? 'fit' : 'fill',
       fx: arr(s.fx).filter(f => FX.includes(f)),
       transition: { type: TRANSITIONS.includes(tr.type) ? tr.type : 'cut', dur: num(tr.dur, .35, 0, 1.5), dir: ['left','right','up','down'].includes(tr.dir) ? tr.dir : 'left' },
-      volume: num(s.volume, 1, 0, 1.6), sfx: SFX.includes(s.sfx) ? s.sfx : 'none'
+      volume: num(s.volume, 1, 0, 1.6), sfx: normSfx(s.sfx?.sound ?? s.sfx),
+      ...(s.sfxVolume != null || s.sfx?.volume != null ? { sfxVolume: num(s.sfxVolume ?? s.sfx?.volume, 1, 0, 1.5) } : {})
     };
+  };
+  const snd = o => {
+    if (!o || typeof o !== 'object') return null;
+    const sound = normSfx(o.sound ?? o.sfx ?? o.type); if (sound === 'none') return null;
+    return { sound, seg: Math.round(num(o.seg, 0, 0, 999)), at: num(o.at, 0, -4, 600), volume: num(o.volume, 1, 0, 1.5) };
   };
   const ov = o => {
     if (!o || typeof o !== 'object') return null;
@@ -498,11 +518,14 @@ function normalizePlan(p){
   out.segments = arr(p.segments).map(seg).filter(Boolean);
   if (!out.segments.length) out.segments.push({in:0, out:Math.min(S.src.duration, 10), speed:1, speedTo:1, camera:'static', zoom:1, focusX:.5, focusY:.5, fit:'fill', fx:[], transition:{type:'cut',dur:0,dir:'left'}, volume:1, sfx:'none'});
   out.overlays = arr(p.overlays).map(ov).filter(Boolean);
+  out.sounds = arr(p.sounds).map(snd).filter(Boolean).slice(0, 80);
+  if (!out.sounds.length) delete out.sounds;
   // Hook variants: alternative openings that each lead into the same body (segments/overlays).
   out.hooks = arr(p.hooks).slice(0, MAX_HOOKS).map((h, k) => ({
     name: str(h?.name, `Hook ${k + 1}`).slice(0, 40) || `Hook ${k + 1}`,
     segments: arr(h?.segments).map(seg).filter(Boolean).slice(0, 6),
-    overlays: arr(h?.overlays).map(ov).filter(Boolean)
+    overlays: arr(h?.overlays).map(ov).filter(Boolean),
+    sounds: arr(h?.sounds).map(snd).filter(Boolean).slice(0, 20)
   })).filter(h => h.segments.length);
   if (!out.hooks.length) delete out.hooks;
   return out;
@@ -533,8 +556,14 @@ function buildTimeline(plan, variant){
     else if (o.body){ start += bodyStart; end += bodyStart; }
     return { ...o, start: clamp(start, 0, total), end: clamp(end, 0, total) };
   }).filter(o => o.end - o.start > .1);
-  const sfx = [];
-  segs.forEach(s => { if (s.sfx !== 'none') sfx.push({ t: s.start + (s.tr ? s.tr/2 : 0), type: s.sfx }); });
+  // Sounds: a segment's sfx plays at the cut into it (mid-transition); "sounds" sit anywhere.
+  const sfx = [], used = { seed: hashStr(plan.title || '') };
+  segs.forEach(s => { const p = pickSound(s.sfx, used); if (p) sfx.push({ ...p, t: s.start + (s.tr ? s.tr/2 : 0), vol: s.sfxVolume ?? 1, seg: s.i }); });
+  [...(hook ? hook.sounds || [] : []), ...(plan.sounds || []).map(o => hn ? { ...o, body: true } : o)].forEach(o => {
+    const k = clamp(o.seg + (o.body ? hn : 0), 0, segs.length - 1), p = pickSound(o.sound, used);
+    if (p) sfx.push({ ...p, t: clamp(segs[k].start + o.at, 0, total), vol: o.volume, seg: k, extra: true });
+  });
+  sfx.sort((a, b) => a.t - b.t);
   return { segs, total, overlays, sfx, hook: hook ? hook.name : null, variant: hook ? hooks.indexOf(hook) : 0, bodyStart };
 }
 function srcTime(sg, u){ u = clamp(u, 0, sg.D); return sg.in + sg.speed*u + (sg.speedTo - sg.speed)*u*u/(2*sg.D); }
@@ -620,7 +649,8 @@ function kyrnAuto(segs, M){
     title: 'Kyrn ad', frame: { ...KYRN_FRAME },
     notes: "Quick Kyrn ad from the loudness map, laid out to the ad rules: tall gameplay window, caption under TikTok's top bar, KYRN by 3 s, Discord end card. It can't see the footage, so it has no per-shot captions. Send it to Claude for the real cut.",
     look: { preset: 'punch' }, beatPulse: 0, progressBar: false,
-    music: { volume:.85, start: M ? musicIn(M, false) : 0, duck:.7 }, segments: segs, overlays: ov
+    music: { volume:.85, start: M ? musicIn(M, false) : 0, duck:.7 }, segments: segs, overlays: ov,
+    sounds: [{ sound: 'reverse', seg: last, at: 0 }, { sound: 'boom', seg: last, at: 0, volume: .9 }]
   };
 }
 function musicIn(M, hook){
@@ -643,7 +673,7 @@ const PLAYBOOK = `You are a senior short-form and YouTube editor and motion desi
 - 3D TITLES: title3d is an extruded, lit 3D word that flies in. Use it for an intro or a chapter beat (1-3 words). dim darkens the clip behind it.
 - PARTICLES: subtle atmosphere (dust/bokeh for cinematic or promo, embers or sparks for hype, snow, confetti for celebrations). amount 0.3-0.7.
 - COLOR: one consistent look for the whole edit. Choose a preset and optionally fine-tune it.
-- SOUND: whoosh on whips and pushes, impact or boom on hits and flash cuts, riser into a drop (it is placed so it peaks at the cut). Drop the source volume (0-0.3) under music montages. Keep 1 for talking.
+- SOUND DESIGN: real recorded effects from the SOUND LIBRARY, used like a trailer editor: whoosh on whips, pushes and fast camera moves; impact on hard cuts, punch-ins and text slams; boom or braam under a title or the big reveal; riser or reverse into a drop, a title or the end card (Cutroom lines up their peak with the moment); glitch only on glitch transitions; click only for UI-style text pops. Less is more: most cuts get nothing, at most one sound per 1-2 s, never two hits at the same moment (a riser or reverse peaking into a boom or impact is the classic exception), and vary them. Drop the source volume (0-0.3) under music montages. Keep 1 for talking.
 - ENDING: shorts should end on a strong frame or loop back to the opening idea. No "thanks for watching" filler.
 Quality over quantity: every effect needs a reason. Don't stack glitch, shake and chroma on every shot.`;
 
@@ -653,7 +683,7 @@ const KYRN_RULES = `KYRN AD RULES (this is an ad for Kyrn, the user's alien RTS 
 - Opening caption "A NEW ALIEN RTS IS COMING TO ROBLOX", then KYRN on screen by 3 s (a title3d "KYRN" works).
 - Each caption describes its own shot and lasts only as long as that shot. It must match what's on screen (no "By day" over a night shot). Plain, general wording that explains the game: "Command your army", "Grow your army", "Send them into battle", "Command war beasts", "Fight on land and sea". No lore names, no hype lines, no jokes.
 - End card on the last shot: title3d "KYRN" (dim 0.55), text "Coming soon to Roblox" (minimal, y 0.6), "Join the Discord" (minimal, y 0.645), and a "plate" text "discord.gg/YAG53jk52" (y 0.7). Never "Hit Notify Me", never "a real RTS".
-- One theme per ad. Sound: one music track start to finish, with game sound under it (segment volume 0.35-0.5). Mostly cuts and gentle camera moves, no glitch spam. Look preset: punch or clean (gloss for Prism skins).`;
+- One theme per ad. Sound: one music track start to finish, with game sound under it (segment volume 0.35-0.5). Sound effects stay sparse and cinematic: a boom or braam under each KYRN title, a riser or reverse into the end card, soft whooshes only on real transitions. No clicks or glitches. Mostly cuts and gentle camera moves, no glitch spam. Look preset: punch or clean (gloss for Prism skins).`;
 
 const SCHEMA = `Reply with ONLY one JSON object, no prose outside it:
 {
@@ -670,12 +700,14 @@ const SCHEMA = `Reply with ONLY one JSON object, no prose outside it:
     "focusX": 0..1, "focusY": 0..1, "fit": "fill"|"fit",
     "fx": subset of ${JSON.stringify(FX)},
     "transition": {"type": one of ${JSON.stringify(TRANSITIONS)}, "dur": 0..1, "dir": "left"|"right"|"up"|"down"} (transition INTO this segment; first segment uses "cut"),
-    "volume": 0..1.6 (source audio), "sfx": one of ${JSON.stringify(SFX)},
+    "volume": 0..1.6 (source audio), "sfx": a type from ${JSON.stringify(SFX)} or one sound's exact name from the SOUND LIBRARY (plays at the cut into this segment), "sfxVolume": optional 0..1.5,
     "source": optional take index when several takes are loaded (0 = main take)}
  ],
  "hooks": optional [ 2-${MAX_HOOKS} alternative openings for A/B testing, each followed by the shared body
-   {"name": 2-4 word label, "segments": [1-3 segments as above, 1.5-4 s total], "overlays": [overlays as below; seg counts within the hook]}
+   {"name": 2-4 word label, "segments": [1-3 segments as above, 1.5-4 s total], "overlays": [overlays as below; seg counts within the hook], "sounds": optional, as below}
  ],
+ "sounds": optional [ extra sound effects placed anywhere: a boom under a title, a riser into the drop
+   {"sound": a type or one sound's exact name, "seg": segment index, "at": seconds after that segment starts (may be negative), "volume": 0..1.5} ],
  "overlays": [
    {"type":"text","text":string,"style": one of ${JSON.stringify(TEXT_STYLES)},"position": one of ${JSON.stringify(POSITIONS)},"y": optional 0..1 exact height (overrides position),"size":"s"|"m"|"l"|"xl","color": optional hex accent,"seg": segment index,"at": seconds after that segment starts,"dur": seconds},
    {"type":"title3d","text":string,"color":hex,"dim":0..0.8,"seg":index,"at":seconds,"dur":seconds},
@@ -683,9 +715,19 @@ const SCHEMA = `Reply with ONLY one JSON object, no prose outside it:
  ]
 }
 Anchor overlays to segments with seg/at/dur. Output times shift with speed and transitions, so don't compute absolute times.
-With "hooks", "segments" and "overlays" are the BODY that plays after every hook: body seg indexes count within the body. Each hook must stand on its own (its own opening shot and hook text, plus anything the rules require by 3 s) and must differ for real: a different shot or a different angle of the pitch, not the same shot with new words. The body should then start on a shot none of the hooks used.
+With "hooks", "segments", "overlays" and "sounds" are the BODY that plays after every hook: body seg indexes count within the body. Each hook must stand on its own (its own opening shot and hook text, plus anything the rules require by 3 s) and must differ for real: a different shot or a different angle of the pitch, not the same shot with new words. The body should then start on a shot none of the hooks used.
 Style notes: "caption" shows word-by-word karaoke captions, 2-3 words at a time (give the spoken words in order across the speech). "kinetic" slams one word at a time. "lowerThird" takes "Name|Subtitle". "chapter" takes "01|Label". "typewriter" types it out. "impact" is big bold stroked text. "plate" is a solid button plate (for links and calls to action). "minimal" is small spaced caps. "neon" glows. "marker" is handwritten with a highlighter. "glitch" is RGB-split text.`;
 
+function soundLibraryText(){
+  if (!SB.list.length) return '';
+  const by = {}; SB.list.forEach(e => (by[e.cat] = by[e.cat] || []).push(e));
+  const L = [`SOUND LIBRARY: ${SB.list.length} recorded sound effects${SB.list.some(e => e.pack === 'yours') ? ' (the user\'s own library plus the starter set)' : ''}. Name a type and Cutroom picks and varies the sound, or give one sound's exact name to choose it (do that for the moments that matter: titles, the drop, the end card).`];
+  for (const c of [...SFX.slice(1), 'other']) if (by[c]) {
+    const l = by[c].sort((a, b) => (b.pack === 'yours') - (a.pack === 'yours'));
+    L.push(`  ${c} (${l.length}): ${l.slice(0, 30).map(e => e.name).join('; ')}${l.length > 30 ? `; …and ${l.length - 30} more${STUDIO ? ' (all names in request.json "sounds")' : ''}` : ''}`);
+  }
+  return L.join('\n');
+}
 function buildPrompt({ revise } = {}){
   const src = S.src, A = S.analysis.audio, M = S.music?.analysis, set = S.settings;
   const L = [];
@@ -695,6 +737,7 @@ function buildPrompt({ revise } = {}){
     L.push(`MULTIPLE TAKES: ${S.srcs.length} recordings are loaded. Source 0 is the clip above (tag T1 on its sheets). A segment cuts from take N with "source": N; "in"/"out" are that take's own seconds.`);
     S.srcs.slice(1).forEach((x, k) => L.push(`  source ${k + 1} (tag T${k + 2}): ${x.label || x.name}, ${x.duration.toFixed(2)} s, ${x.w}x${x.h}.${x.analysis.audio ? ` Silences (s): ${JSON.stringify(x.analysis.audio.silences.slice(0, 40))}. Loudness per 0.5 s: ${levelString(x.analysis.audio, x.duration)}` : ''}`));
   }
+  const lib = soundLibraryText(); if (lib) L.push(lib);
   L.push(`OUTPUT: ${set.aspect} at 30 fps. Target length: ${set.length === 'auto' ? 'your call (shorts usually 15-45 s; never longer than the useful footage)' : set.length === 'full' ? 'use most of the footage, trimmed of dead air' : set.length + ' s (+-15%)'}.`);
   L.push(`STYLE: ${set.style === 'claude' ? 'choose what fits the footage and brief' : STYLES[set.style].label}.`);
   L.push(`USER BRIEF: ${$('#brief').value.trim() || '(none: infer from the footage)'}`);
@@ -750,7 +793,8 @@ async function directViaStudio(revise){
       duration: S.src.duration, size: [S.src.w, S.src.h], brief, style: S.settings.style, aspect: S.settings.aspect, length: S.settings.length,
       script: $('#script').value.trim() || null, revise: revise || null, currentPlan: revise ? planForExport(S.plan) : null,
       music: S.music ? { name: S.music.name, bpm: S.music.analysis?.bpm, drop: S.music.analysis?.drop } : null,
-      sources: S.srcs.map(srcRef), sheetSources, library } });
+      sources: S.srcs.map(srcRef), sheetSources, library,
+      sounds: SB.list.slice(0, 3000).map(e => ({ name: e.name, type: e.cat, ...(e.pack === 'yours' ? { yours: true } : {}) })) } });
     S.waitingDir = r.dir;
     await STUDIO.cutroomWatch(r.dir);
     setStatus(`<span class="hl">Request copied.</span> Paste it (Ctrl+V) into your Claude chat and send.\nClaude reads the frames in <b>${esc(r.dir.split(/[\\/]/).pop())}</b> and saves plan.json there. Cutroom loads it the moment it lands.`);
@@ -793,7 +837,84 @@ async function direct(revise){
   } finally { setBusy(false); }
 }
 
-/* ============================== audio (sfx synthesis) ============================== */
+/* ============================== audio: sound bank ============================== */
+function hashStr(v){ let h = 2166136261; for (const c of String(v)) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
+function normSfx(v){
+  const s = str(v, '').trim().slice(0, 100);
+  if (!s || s.toLowerCase() === 'none') return 'none';
+  return SFX.includes(s.toLowerCase()) ? s.toLowerCase() : s;
+}
+function setSoundBank(list){
+  SB.list = []; SB.byName.clear();
+  for (const x of list || []){
+    const base = str(x.name, '').slice(0, 90); if (!base || !x.url) continue;
+    const cat = SFX.includes(x.cat) && x.cat !== 'none' ? x.cat : (sfxCat(x.name) || sfxCat(x.rel) || 'other');
+    let name = base, k = 2; while (SB.byName.has(name.toLowerCase())) name = `${base} (${k++})`;
+    const e = { name, cat, url: x.url, pack: x.pack === 'yours' ? 'yours' : 'starter', rel: x.rel || null };
+    SB.list.push(e); SB.byName.set(name.toLowerCase(), e);
+  }
+  SB.cache.clear(); showSoundInfo();
+  if (S.plan){ S.tl = buildTimeline(S.plan, S.variant); showTimeline(); }
+}
+function showSoundInfo(){
+  const el = $('#sfxInfo'); if (!el) return;
+  const mine = SB.list.filter(e => e.pack === 'yours').length, starter = SB.list.length - mine;
+  el.innerHTML = SB.list.length
+    ? `<strong>${SB.list.length} recorded sounds</strong><small>${starter ? `${starter} starter` : ''}${starter && mine ? ' + ' : ''}${mine ? `${mine} of yours` : ''}. ${STUDIO ? 'Drop any sound library into the Sounds folder (subfolders are fine); Claude picks from all of them.' : ''}</small>`
+    : `<strong>Built-in synth sounds</strong><small>${STUDIO ? 'Add recorded sounds to the Sounds folder.' : 'Recorded sounds load in Promo Studio.'}</small>`;
+}
+// One placement: an exact sound name wins; a type rotates through that type's sounds (the
+// user's own first when they have a few) so repeated whooshes don't all sound the same.
+function pickSound(spec, used){
+  const s = str(spec, '').trim(); if (!s || s === 'none') return null;
+  const lc = s.toLowerCase(), named = SB.byName.get(lc);
+  if (named){ (used.last = used.last || {})[named.cat] = named.name; return { cat: named.cat, sound: named.name }; }
+  const isType = SFX.includes(lc);
+  const part = !isType && lc.length > 3 ? SB.list.find(e => e.name.toLowerCase().includes(lc)) : null;
+  if (part) return { cat: part.cat, sound: part.name };
+  const cat = isType ? lc : sfxCat(s); if (!cat) return { cat: null, sound: null, missing: s };
+  const pool = SB.list.filter(e => e.cat === cat), mine = pool.filter(e => e.pack === 'yours'), from = mine.length >= 2 ? mine : pool;
+  const r = { cat, sound: null, ...(isType ? {} : { missing: s }) };
+  if (from.length){
+    used.last = used.last || {};
+    for (let k = 0; k < 3; k++){ used[cat] = (used[cat] ?? (used.seed + cat.length * 7)) + 1; r.sound = from[used[cat] % from.length].name; if (r.sound !== used.last[cat] || from.length < 2) break; }
+    used.last[cat] = r.sound;
+  }
+  return r;
+}
+// Decodes a bank sound once. The loudest 50 ms sets its gain (so every library sits at the same
+// level); onset is where it first gets loud, peak where it is loudest. Whooshes, risers and
+// reverses line their peak up with the moment; hits start on it.
+function soundBuf(name){
+  if (!name) return Promise.resolve(null);
+  if (SB.cache.has(name)) return SB.cache.get(name);
+  const e = SB.byName.get(name.toLowerCase()); if (!e) return Promise.resolve(null);
+  const p = (async () => {
+    eng.ensureAudio();
+    const buf = await eng.actx.decodeAudioData(await (await fetch(e.url)).arrayBuffer());
+    const a = buf.getChannelData(0), b = buf.numberOfChannels > 1 ? buf.getChannelData(1) : a, sr = buf.sampleRate, w = Math.round(sr * .05), hop = Math.round(sr * .01), env = [];
+    let best = 0, bi = 0;
+    for (let i = 0; i < a.length; i += hop){
+      const end = Math.min(a.length, i + w); let sum = 0, n = 0;
+      for (let j = i; j < end; j += 4){ const v = (a[j] + b[j]) / 2; sum += v * v; n++; }
+      const r = Math.sqrt(sum / Math.max(1, n)); env.push(r); if (r > best){ best = r; bi = env.length - 1; }
+    }
+    const on = Math.max(0, env.findIndex(r => r >= best * .12));
+    return { buf, gain: best > 1e-4 ? Math.min(10, .3 / best) : 1, onset: on * hop / sr, peak: Math.min(buf.duration, (bi * hop + w / 2) / sr) };
+  })().catch(err => { console.warn('sound failed', name, err); return null; });
+  SB.cache.set(name, p); return p;
+}
+const prepSounds = tl => Promise.all([...new Set((tl?.sfx || []).map(x => x.sound).filter(Boolean))].map(soundBuf));
+const ALIGN_PEAK = { whoosh: 1, riser: 1, reverse: 1 };
+async function loadSoundBank(){
+  try {
+    if (STUDIO?.cutroomSounds){ const r = await STUDIO.cutroomSounds(); SB.dir = r.dir; setSoundBank(r.sounds.map(x => ({ ...x, url: mediaUrl(x.file) }))); return; }
+    const idx = await (await fetch('sounds/index.json')).json();
+    setSoundBank(idx.sounds.map(x => ({ ...x, url: 'sounds/' + encodeURIComponent(x.file) })));
+  } catch { showSoundInfo(); }
+}
+
+/* ============================== audio (sfx synthesis, fallback) ============================== */
 function synthSfx(ctx){
   const sr = ctx.sampleRate, mk = (dur, fn) => { const b = ctx.createBuffer(2, Math.floor(sr*dur), sr); for (let c = 0; c < 2; c++){ const d = b.getChannelData(c); let st = {}; for (let i = 0; i < d.length; i++) d[i] = fn(i/sr, dur, st, c); } return b; };
   const rnd = mulberry(7);
@@ -1041,7 +1162,7 @@ class Engine {
     this.recDest = a.createMediaStreamDestination(); this.master.connect(this.recDest);
     this.elGain = this.els.map((v, k) => this.mkGain(v, this.auds[k]));
     this.musicGain = a.createGain(); this.musicGain.connect(this.master);
-    this.sfxGain = a.createGain(); this.sfxGain.gain.value = .55; this.sfxGain.connect(this.master);
+    this.sfxGain = a.createGain(); this.sfxGain.gain.value = .6; this.sfxGain.connect(this.master);
     this.sfx = synthSfx(a);
   }
   // Each take gets two slots (video + its game-sound element) so consecutive shots preload and cross over.
@@ -1388,6 +1509,7 @@ async function play(from){
   if (!S.tl) return;
   eng.ensureAudio(); if (eng.actx.state === 'suspended') await eng.actx.resume();
   stopAudioNodes();
+  const snd = await prepSounds(S.tl).catch(() => []);
   const tl = S.tl; from = clamp(from, 0, tl.total - .05);
   eng.els.forEach((v, k) => { v.dataset.seg = ''; deck.pause(k); });
   const st = stateAt(tl, from), need = [st.a]; if (st.b >= 0) need.push(st.b);
@@ -1405,10 +1527,19 @@ async function play(from){
     const endAt = P.c0 + (tl.total - from); g.setValueAtTime(plan.music.volume, Math.max(P.c0 + .3, endAt - 1.2)); g.linearRampToValueAtTime(0, endAt);
   }
   for (const s of tl.sfx){
-    const buf = eng.sfx[s.type]; if (!buf) continue;
-    const startAt = s.t - (s.type === 'riser' ? buf.duration*.92 : (s.type === 'whoosh' ? buf.duration*.45 : 0));
-    if (startAt < from) continue;
-    const n = eng.actx.createBufferSource(); n.buffer = buf; n.connect(eng.sfxGain); n.start(P.c0 + (startAt - from)); P.sfxNodes.push(n);
+    if (s.t < from - .05 || !s.cat) continue;
+    let buf, anchor, gain = s.vol ?? 1;
+    const info = s.sound ? await soundBuf(s.sound) : null;
+    if (info){ buf = info.buf; anchor = ALIGN_PEAK[s.cat] ? info.peak : info.onset; gain *= info.gain; }
+    else {
+      // No recorded sound for this type: fall back to the synthesized one.
+      const k = { reverse: 'riser', glitch: 'click' }[s.cat] || s.cat; buf = eng.sfx[k]; if (!buf) continue;
+      anchor = k === 'riser' ? buf.duration * .92 : k === 'whoosh' ? buf.duration * .45 : 0;
+    }
+    const startAt = s.t - anchor, n = eng.actx.createBufferSource(), g = eng.actx.createGain();
+    n.buffer = buf; g.gain.value = gain; n.connect(g); g.connect(eng.sfxGain);
+    if (startAt >= from) n.start(P.c0 + (startAt - from)); else n.start(P.c0, from - startAt);
+    P.sfxNodes.push(n);
   }
   P.onStart?.(); P.onStart = null;
   setPlayIcon(true);
@@ -1719,7 +1850,8 @@ function showTimeline(){
   segs.forEach(sg => {
     const row = document.createElement('div'); row.className = 'shot'; row.tabIndex = 0;
     const c = document.createElement('canvas'); c.width = 108; c.height = 64; drawThumb(c.getContext('2d'), sg.in, 0, 0, 108, 64, sg);
-    const tags = [sg.hook ? `<span class="tag c">hook</span>` : '', S.srcs.length > 1 ? `<span class="tag">T${(sg.source || 0) + 1}</span>` : '', sg.camera !== 'static' ? `<span class="tag c">${sg.camera}</span>` : '', sg.transition.type !== 'cut' && sg.i ? `<span class="tag">${sg.transition.type}</span>` : '', sg.speed !== 1 || sg.speedTo !== sg.speed ? `${sg.speed}${sg.speedTo !== sg.speed ? '→'+sg.speedTo : ''}x` : '', ...sg.fx].filter(Boolean).join(' · ');
+    const tags = [sg.hook ? `<span class="tag c">hook</span>` : '', S.srcs.length > 1 ? `<span class="tag">T${(sg.source || 0) + 1}</span>` : '', sg.camera !== 'static' ? `<span class="tag c">${sg.camera}</span>` : '', sg.transition.type !== 'cut' && sg.i ? `<span class="tag">${sg.transition.type}</span>` : '', sg.speed !== 1 || sg.speedTo !== sg.speed ? `${sg.speed}${sg.speedTo !== sg.speed ? '→'+sg.speedTo : ''}x` : '', ...sg.fx,
+      ...S.tl.sfx.filter(x => x.seg === sg.i && x.cat).map(x => `<span class="tag" title="${esc(x.cat)}">♪ ${esc(x.sound || x.cat)}</span>`)].filter(Boolean).join(' · ');
     row.innerHTML = `<span class="n">${String(sg.i+1).padStart(2,'0')}</span>`; row.appendChild(c);
     row.insertAdjacentHTML('beforeend', `<span class="tags">${tags || '<span style="color:var(--muted)">straight cut</span>'}</span><span class="d">${sg.in.toFixed(1)}–${sg.out.toFixed(1)}s</span>`);
     row.onclick = () => seek(sg.start + Math.min(.05 + sg.tr, sg.D/2));
@@ -1871,6 +2003,11 @@ function reviewChecks(tl, hookOnly){
   texts.filter(o => scope(o) && o.type === 'text' && (o.y ?? 0) > .82).forEach(o => w.push(`Text "${String(o.text).slice(0, 20)}" sits at y ${o.y}, inside the TikTok UI zone (bottom 18%).`));
   tl.segs.forEach((s, i) => { if (hookOnly && !s.hook) return; const d = s.end - s.start; if (d < .35) w.push(`Shot ${i + 1} lasts ${d.toFixed(2)} s (a flash frame).`); if (d > 6) w.push(`Shot ${i + 1} lasts ${d.toFixed(1)} s with no cut.`); });
   if (!hookOnly && S.music && plan.music && plan.music.volume > .95) w.push('Music volume above 0.95 may bury the game sound.');
+  const sx = tl.sfx.filter(x => !hookOnly || x.t < tl.bodyStart + .6);
+  [...new Set(sx.filter(x => x.missing).map(x => `Sound "${x.missing}" isn't in the SOUND LIBRARY, so ${x.sound ? `${x.cat} "${x.sound}" played instead` : 'nothing played'}. Use a type or an exact name.`))].forEach(m => w.push(m));
+  sx.forEach((a, i) => { const near = sx.filter(b => b !== a && Math.abs(b.t - a.t) < .12 && !ALIGN_PEAK[b.cat] === !ALIGN_PEAK[a.cat]); if (near.length && sx.indexOf(near[0]) > i) w.push(`${near.length + 1} sound effects land together at ${a.t.toFixed(1)} s; keep one.`); });
+  for (let i = 0; i + 3 < sx.length; i++) if (sx[i + 3].t - sx[i].t < 2){ w.push(`4 sound effects within 2 s around ${sx[i].t.toFixed(1)} s; thin them out.`); break; }
+  for (let i = 0; i + 2 < sx.length; i++) if (sx[i].sound && sx[i].sound === sx[i + 1].sound && sx[i].sound === sx[i + 2].sound){ w.push(`"${sx[i].sound}" plays 3 times in a row from ${sx[i].t.toFixed(1)} s; vary it.`); break; }
   return w;
 }
 function hookChecks(){
@@ -1915,6 +2052,7 @@ async function reviewSheet(){
   return {
     blob,
     frames: cells.map((x, i) => ({ n: i + 1, t: +x.t.toFixed(2), what: x.why, ...(x.p.tl.hook ? { hook: x.p.tl.hook } : {}) })),
+    sounds: parts.flatMap((p, k) => p.tl.sfx.filter(x => x.cat && (!k || x.t < p.tl.bodyStart + .6)).map(x => ({ t: +x.t.toFixed(2), type: x.cat, sound: x.sound || '(synth)', shot: x.seg + 1, ...(p.tl.hook ? { hook: p.tl.hook } : {}) }))),
     checks: [...parts.flatMap(p => p.checks.map(c => tagged(p, c))), ...hookChecks()],
     hooks: hooks.length ? parts.map(p => ({ name: p.tl.hook, total: +p.tl.total.toFixed(2), bodyStart: +p.tl.bodyStart.toFixed(2) })) : undefined
   };
@@ -1925,7 +2063,7 @@ async function sendReview(dir, round, newTakes){
     const r = await reviewSheet(); if (!r) return;
     const takes = [];
     for (const j of (newTakes || [])){ const c = S.srcs[j]?.sheets?.[0]; if (c) takes.push({ name: `take-${j + 1}.jpg`, jpeg: await (await new Promise(res => c.toBlob(res, 'image/jpeg', .82))).arrayBuffer() }); }
-    await STUDIO.cutroomReview(dir, { jpeg: await r.blob.arrayBuffer(), takes, review: { round, total: +S.tl.total.toFixed(2), shots: S.tl.segs.length, hooks: r.hooks, frames: r.frames, checks: r.checks,
+    await STUDIO.cutroomReview(dir, { jpeg: await r.blob.arrayBuffer(), takes, review: { round, total: +S.tl.total.toFixed(2), shots: S.tl.segs.length, hooks: r.hooks, frames: r.frames, sounds: r.sounds, checks: r.checks,
       takeSheets: takes.length ? takes.map(t => t.name) : undefined,
       guides: 'Dashed red boxes mark the TikTok/Shorts UI zones (captions, buttons). Keep text and key action out of them.' + (r.hooks ? ' Frames tagged H1, H2… belong to that hook; H1 is shown in full, the others only up to the start of the shared body.' : '') } });
     setStatus(`<span class="hl">Claude's plan is in</span> (round ${round}). ${S.tl.segs.length} shots, ${S.tl.total.toFixed(1)} s. Review frames saved for Claude${r.checks.length ? `, ${r.checks.length} thing${r.checks.length > 1 ? 's' : ''} to fix` : ''}. Press play or export.`);
@@ -1950,6 +2088,10 @@ async function initStudio(){
     const tracks = await STUDIO.cutroomMusic();
     if (tracks.length){ pick.hidden = false; tracks.forEach(t => { const o = document.createElement('option'); o.value = t.file; o.textContent = t.name; pick.appendChild(o); }); }
   } catch {}
+  $('#btnSounds').hidden = !STUDIO.cutroomOpenSounds;
+  $('#btnSounds').onclick = async () => { await STUDIO.cutroomOpenSounds(); };
+  // Re-scan when the window regains focus, so sounds dropped into the folder show up.
+  window.addEventListener('focus', () => { clearTimeout(SB.rescan); SB.rescan = setTimeout(async () => { try { const r = await STUDIO.cutroomSounds(); if (r.sounds.length !== SB.list.length) setSoundBank(r.sounds.map(x => ({ ...x, url: mediaUrl(x.file) }))); } catch {} }, 400); });
   $('#takePick').onchange = e => {
     const o = e.target.selectedOptions[0]; if (!o?.value) return;
     addSource(studioSrc({ main: o.value, game: o.dataset.game, off: o.dataset.off, take: o.textContent, title: o.textContent }));
@@ -1977,6 +2119,7 @@ async function initStudio(){
   if (q.get('style') && STYLES[q.get('style')]){ S.settings.style = q.get('style'); [...$('#styleChips').children].forEach((c, i) => c.setAttribute('aria-pressed', String(Object.keys(STYLES)[i] === S.settings.style))); }
 }
 if (STUDIO) initStudio();
+loadSoundBank();
 (async () => {
   if (STUDIO || !window.claude?.use) { setBusy(false); return; }
   try { sampleFn = await claude.use('sample'); } catch {}
@@ -1984,6 +2127,6 @@ if (STUDIO) initStudio();
   if (!sampleFn) $('#btnDirect').title = 'Claude is not available in this view';
   setBusy(false);
 })();
-window.__cutroom = { S, eng, loadSource, loadMusic, applyPlan, autoPlan, play, pause, seek, exportVideo, normalizePlan, buildPrompt, addSource, selectVariant, reviewSheet, buildTimeline };
+window.__cutroom = { S, SB, setSoundBank, pickSound, soundBuf, eng, loadSource, loadMusic, applyPlan, autoPlan, play, pause, seek, exportVideo, normalizePlan, buildPrompt, addSource, selectVariant, reviewSheet, buildTimeline };
 </script>
 </body></html>

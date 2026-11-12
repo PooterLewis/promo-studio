@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('studio', {
   openClaude: () => ipcRenderer.invoke('claude:open'),
   cutroomOpen: info => ipcRenderer.invoke('cutroom:open', info),
   cutroomMusic: () => ipcRenderer.invoke('cutroom:music'),
+  cutroomSounds: () => ipcRenderer.invoke('cutroom:sounds'),
+  cutroomOpenSounds: () => ipcRenderer.invoke('cutroom:openSounds'),
   cutroomRequest: req => ipcRenderer.invoke('cutroom:request', req),
   cutroomWatch: dir => ipcRenderer.invoke('cutroom:watch', dir),
   cutroomReview: (dir, data) => ipcRenderer.invoke('cutroom:review', dir, data),
